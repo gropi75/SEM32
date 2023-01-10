@@ -292,3 +292,4 @@ secret.txt
 .pio/build/esp32dev/partitions.bin
 .pio/build/esp32dev/tmp9870rz_g.tmp
 lib/secrets.h
+.pio/build/esp32dev/tmpxy9nr2xy.tmp
