@@ -47,6 +47,9 @@
 *.cmd
 .tmp_versions/
 
+# temporary files
+.tmp
+
 modules.order
 Module.symvers
 Mkfile.old
@@ -283,3 +286,9 @@ secret.txt
 .vscode/c_cpp_properties.json
 .vscode/extensions.json
 .vscode/launch.json
+.pio/build/esp32dev/.sconsign39.dblite
+.pio/build/esp32dev/bootloader.bin
+.pio/build/esp32dev/firmware.bin
+.pio/build/esp32dev/partitions.bin
+.pio/build/esp32dev/tmp9870rz_g.tmp
+lib/secrets.h
