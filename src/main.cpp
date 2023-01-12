@@ -23,6 +23,7 @@ Open: Use of https://github.com/s00500/ESPUI
 #include "main.h"
 
 #include "soyosource.h"
+#include "CalculatePower.h"
 
 #include "secrets.h"
 
@@ -55,7 +56,8 @@ namespace Main
     int ActualSetPower = 0;
     float ActualSetVoltage = 56.2;
     float ActualSetCurrent = 0;
-    int PowerReserve = 25;
+    int PowerReserveCharger = 25;
+    int PowerReserveInv = 25;
     bool g_EnableCharge = true;
 
     /*
@@ -69,7 +71,7 @@ namespace Main
     Card CardActualSetPower(&dashboard, GENERIC_CARD, "Actual Set Power", "W");
     Card CardActualSetVoltage(&dashboard, GENERIC_CARD, "Actual Set Voltage", "V");
     Card CardActualSetCurrent(&dashboard, GENERIC_CARD, "Actual Set Current", "A");
-    Card TargetPowerReserve(&dashboard, SLIDER_CARD, "Power Reserve", "W", 0, 100);
+    Card TargetPowerReserveCharger(&dashboard, SLIDER_CARD, "Power Reserve", "W", 0, 100);
     Card CardSetVoltage(&dashboard, SLIDER_CARD, "Charge Voltage", "V", 54.4, 57.6);
     Card CardEnableCharge(&dashboard, BUTTON_CARD, "Enable charing");
 
@@ -276,11 +278,11 @@ namespace Main
         reconnect();
         */
 
-        TargetPowerReserve.attachCallback([&](int value) { /* Attach Slider Callback */
+        TargetPowerReserveCharger.attachCallback([&](int value) { /* Attach Slider Callback */
                                                            /* Make sure we update our slider's value and send update to dashboard */
-                                                           TargetPowerReserve.update(value);
+                                                           TargetPowerReserveCharger.update(value);
                                                            dashboard.sendUpdates();
-                                                           PowerReserve = value;
+                                                           PowerReserveCharger = value;
         });
 
         /*
@@ -303,7 +305,7 @@ namespace Main
         });
 
         webserver.begin(); // start Asynchron Webserver
-        TargetPowerReserve.update(PowerReserve);
+        TargetPowerReserveCharger.update(PowerReserveCharger);
         CardSetVoltage.update(ActualSetVoltage);
         CardDeviceStatus.update("Running", "success");
         dashboard.sendUpdates();
@@ -382,7 +384,8 @@ namespace Main
 
             if (g_EnableCharge)
             {
-                ActualSetPower = calculateSetPower(ActualPower, ActualSetPower, PowerReserve, 3000);
+//                ActualSetPower = calculateSetPower(ActualPower, ActualSetPower, PowerReserveCharger, 3000);
+                ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, 4000, PowerReserveCharger,800);
                 CardDeviceStatus.update("Charging", "success");
             }
             else if (!g_EnableCharge)
