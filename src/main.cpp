@@ -147,7 +147,7 @@ namespace Main
         {
             Serial.print("Attempting MQTT connection...");
             // Create a client ID
-            String clientId = "ESP32-R4830G2";
+            String clientId = ESP_Hostname;
             clientId += String(random(0xffff), HEX);
             // Attempt to connect
             if (PSclient.connect(clientId.c_str()))
@@ -396,7 +396,6 @@ namespace Main
             {
                 ActualSetPower = 0;
             }
-
 
             ActualSetCurrent = ActualSetPower / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
