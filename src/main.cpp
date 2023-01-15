@@ -1,16 +1,37 @@
 /*JSON help: https://arduinojson.org/v6/assistant/#/step1
+ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-point-with-esp32
+
 
 Implementen dashboard: https://ayushsharma82.github.io/ESP-DASH/
 Open: Use of https://github.com/s00500/ESPUI
 
+Pinpout:
+
+Charger (CAN Bus)
+GPIO4:  CAN
+GPIO5:  CAN
+
+Inverter (RS485)
+GPIO18: TX 
+GPIO19: RX
+GPIO4: EN (if needed by the transceiver)
+
+Display (I2C)
+
+
+BMS (RS485)
+
+
 
 */
+
+// #define test_debug // uncomment to just test the power calculation part.
+// #define wifitest    // uncomment to debug wifi status
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <CAN.h>
-#include <BluetoothSerial.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
@@ -27,7 +48,6 @@ Open: Use of https://github.com/s00500/ESPUI
 
 #include "secrets.h"
 
-
 WiFiServer server(23);
 WiFiClient serverClient;         // for OTA
 WiFiClient current_clamp_client; // or WiFiClientSecure for HTTPS; to connect to current sensor
@@ -39,9 +59,7 @@ PubSubClient PSclient(mqttclient);
 AsyncWebServer webserver(80); // for Dashoard
 ESPDash dashboard(&webserver);
 
-BluetoothSerial SerialBT;
-
-const char ESP_Hostname[] = "ESP32-R4830G2";
+const char ESP_Hostname[] = "Battery_Control_ESP32";
 
 namespace Main
 {
@@ -54,10 +72,12 @@ namespace Main
     float ActualVoltage = 0;
     float ActualCurrent = 0;
     int ActualSetPower = 0;
+    int ActualSetPowerInv = 0;
+    int ActualSetPowerCharger = 0;
     float ActualSetVoltage = 56.2;
     float ActualSetCurrent = 0;
-    int PowerReserveCharger = 25;
-    int PowerReserveInv = 25;
+    int PowerReserveCharger = 15;
+    int PowerReserveInv = 15;
     bool g_EnableCharge = true;
 
     /*
@@ -101,29 +121,6 @@ namespace Main
             actPower = StatusSNS_SML[String(sensor_resp_power)]; // -2546
         }
         return actPower;
-    }
-
-    // calculate here how to control the battery charger.
-    // Input: available solar power from meter; Output: the power to be set on the charger
-    // call with negative ActPower value, if the function is used to calculate the desired inverter power --> !!!!to be checked!!!!!!
-    int calculateSetPower(int ActPower, int ActSetPower, int minPowerReserve, int maxPower)
-    {
-        int SetPower;
-
-        if ((minPowerReserve + ActPower) < 0)
-        { // goal is to have a reserve of minPower
-            SetPower = ActSetPower - int((minPowerReserve + ActPower) / 3);
-        }
-        else if (((minPowerReserve / 2) + ActPower) < 0)
-        { // however till minPower/2 the set value is not adjusted
-            SetPower = ActSetPower;
-        }
-        else
-        { // if we come under minPower/2, than we
-            SetPower = ActSetPower - int((minPowerReserve + ActPower) / 2);
-        }
-        SetPower = constrain(SetPower, 0, maxPower); // limit the range of control power to 0 and maxPower
-        return SetPower;
     }
 
     void onCANReceive(int packetSize)
@@ -220,14 +217,28 @@ namespace Main
         // digitalWrite(POWER_EN_GPIO, 0); // Default = ON
 
         WiFi.setHostname(ESP_Hostname);
-        if (!WiFi.begin(g_WIFI_SSID, g_WIFI_Passphrase))
-            Serial.println("WiFi config error!");
-        else
+        WiFi.begin(g_WIFI_SSID, g_WIFI_Passphrase);
+        while (WiFi.status() != WL_CONNECTED)
         {
-            WiFi.setAutoConnect(true);
+            delay(500);
+            Serial.print(".");
         }
+        WiFi.setAutoReconnect(true);
+        WiFi.persistent(true);
+
+        Serial.print("[*] Network information for ");
+        Serial.println(ssid);
+
+        Serial.println("[+] BSSID : " + WiFi.BSSIDstr());
+        Serial.print("[+] Gateway IP : ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("[+] Subnet Mask : ");
+        Serial.println(WiFi.subnetMask());
+        Serial.println((String)"[+] RSSI : " + WiFi.RSSI() + " dB");
+        Serial.print("[+] ESP32 IP : ");
         Serial.println(WiFi.localIP());
-        SerialBT.begin(ESP_Hostname);
+        Serial.print("[+] ESP32 hostnape : ");
+        Serial.println(WiFi.getHostname());
 
         ArduinoOTA.onStart([]()
                            {
@@ -265,10 +276,11 @@ namespace Main
         }
         Serial.println("CAN setup done");
 
-        // crashes when calling some functions inside interrupt
-        // CAN.onReceive(onCANReceive);
-
+// crashes when calling some functions inside interrupt
+// CAN.onReceive(onCANReceive);
+#ifndef test_debug
         Huawei::setCurrent(0, true); // set 0 A as default
+#endif
 
         init_RS485();
         Serial.println("RS485 setup done");
@@ -279,10 +291,10 @@ namespace Main
         */
 
         TargetPowerReserveCharger.attachCallback([&](int value) { /* Attach Slider Callback */
-                                                           /* Make sure we update our slider's value and send update to dashboard */
-                                                           TargetPowerReserveCharger.update(value);
-                                                           dashboard.sendUpdates();
-                                                           PowerReserveCharger = value;
+                                                                  /* Make sure we update our slider's value and send update to dashboard */
+                                                                  TargetPowerReserveCharger.update(value);
+                                                                  dashboard.sendUpdates();
+                                                                  PowerReserveCharger = value;
         });
 
         /*
@@ -305,10 +317,13 @@ namespace Main
         });
 
         webserver.begin(); // start Asynchron Webserver
+
+        // update dashboard
         TargetPowerReserveCharger.update(PowerReserveCharger);
         CardSetVoltage.update(ActualSetVoltage);
         CardDeviceStatus.update("Running", "success");
         dashboard.sendUpdates();
+        Serial.println("Init done");
     }
 
     Stream *channel(int num)
@@ -316,19 +331,24 @@ namespace Main
         if (num == -1)
             num = g_CurrentChannel;
 
-        if (num == BTSERIAL && SerialBT.hasClient())
-            return &SerialBT;
-        else if (num == TCPSERIAL && serverClient)
+        if (num == TCPSERIAL && serverClient)
             return &serverClient;
 
         return &Serial;
     }
 
+#ifdef test_debug
+    int increm = 1, count = 70;
+    int ActualSetPower_old = 0;
+#endif
+
     void loop()
     {
+#ifndef test_debug
         int packetSize = CAN.parsePacket();
         if (packetSize)
             onCANReceive(packetSize);
+#endif
 
         ArduinoOTA.handle();
         if (server.hasClient())
@@ -340,82 +360,125 @@ namespace Main
         if (!serverClient)
             serverClient.stop();
 
-        /*  ??????
-            for(int i = 0; i < NUM_CHANNELS; i++)
-            {
-                while(channel(i)->available())
-                {
-                    g_CurrentChannel = i;
-                    int c = channel(i)->read();
-                    if(c == '\r' || c == '\n' || g_SerialBufferPos[i] == sizeof(*g_SerialBuffer))
-                    {
-                        g_SerialBuffer[i][g_SerialBufferPos[i]] = 0;
-
-                        if(g_SerialBufferPos[i])
-                            Commands::parseLine(g_SerialBuffer[i]);
-
-                        g_SerialBufferPos[i] = 0;
-                        continue;
-                    }
-                    g_SerialBuffer[i][g_SerialBufferPos[i]] = c;
-                    ++g_SerialBufferPos[i];
-                }
-            }
-        */
 
         if ((millis() - g_Time1000) > 1000)
         {
+            #ifndef test_debug
+
             Huawei::every1000ms();
+            
             PSclient.loop();
+            #endif
+
+            // update the value for the inverter every second
+            sendpowertosoyo(ActualSetPowerInv);
             g_Time1000 = millis();
         }
 
+
         if ((millis() - g_Time5000) > 5000)
         {
+#ifndef test_debug
             Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
             // reads actual power every 5 seconds
             ActualPower = getActualPower();
-            // ActualPower = -200-random(70)+ActualSetPower;               // for simulation with random values
             ActualVoltage = info.output_voltage;
             ActualCurrent = info.output_current;
+#endif
 
-            Huawei::setVoltage(ActualSetVoltage, false);
+#ifdef test_debug
+            ActualPower = getActualPower(); //-ActualSetPower;
+            //ActualPower = increm * random(20) + ActualPower - ActualSetPower + ActualSetPower_old; // for simulation with random values
+            // ActualPower+= 10*increm;
+            ActualSetPower_old = ActualSetPower;
+            if (count == 100)
+            {
+                increm = 0 - increm;
+                count = 0;
+            }
+            count++;
 
+#ifdef wifitest
+
+            switch (WiFi.status())
+            {
+            case WL_NO_SSID_AVAIL:
+                Serial.println("Configured SSID cannot be reached");
+                break;
+            case WL_CONNECTED:
+                Serial.println("Connection successfully established");
+                break;
+            case WL_CONNECT_FAILED:
+                Serial.println("Connection failed");
+                break;
+            }
+            Serial.printf("Connection status: %d\n", WiFi.status());
+            Serial.print("RRSI: ");
+            Serial.println(WiFi.RSSI());
+
+#endif
+
+#endif
+
+            // calculate desired power
+            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, 1000, PowerReserveInv, 600);
+
+            // decide, whether the charger or inverter shall be activated
+
+            if (ActualSetPower >= 0)
+            { // inverter
+                ActualSetPowerCharger = 0;
+                ActualSetPowerInv = ActualSetPower;
+            }
+            else if (ActualPower < 0)
+            { // charger
+                ActualSetPowerCharger = -ActualSetPower;
+                ActualSetPowerInv = 0;
+            }
+
+#ifndef test_debug
             if (g_EnableCharge)
             {
-//                ActualSetPower = calculateSetPower(ActualPower, ActualSetPower, PowerReserveCharger, 3000);
-                ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, 4000, PowerReserveCharger,800);
                 CardDeviceStatus.update("Charging", "success");
             }
             else if (!g_EnableCharge)
             {
-                ActualSetPower = 0;
+                ActualSetPowerCharger = 0;
                 CardDeviceStatus.update("Output disabled", "idle");
             }
+#endif
 
-            // if we import power from grid, than set the charging power to 0
-            if (ActualPower > 0)
-            {
-                ActualSetPower = 0;
-            }
+// send commands to the charger and inverter
+            sendpowertosoyo(ActualSetPowerInv);
+#ifndef test_debug
 
-            ActualSetCurrent = ActualSetPower / ActualSetVoltage;
+            Huawei::setVoltage(ActualSetVoltage, false);
+            ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
+#endif
+
+#ifdef test_debug
+            Serial.print(count);
+            Serial.print("   ");
+#endif
 
             Serial.print(ActualPower);
             Serial.print("   ");
-            Serial.print(ActualVoltage);
-            Serial.print("   ");
-            Serial.print(ActualCurrent);
-            Serial.print("   ");
-
             Serial.print(ActualSetPower);
+            Serial.print("   ");
+            Serial.print(ActualSetPowerInv);
+            Serial.print("   ");
+            Serial.print(ActualSetPowerCharger);
+/*
+#ifndef test_debug
             Serial.print("   ");
             Serial.print(ActualSetVoltage);
             Serial.print("   ");
-            Serial.println(ActualSetCurrent);
-
+            Serial.print(ActualSetCurrent);
+#endif
+*/
+            Serial.println();
             // char temp[60];
             // dtostrf(ActualSetCurrent,2,2,temp);
             // sprintf(temp, "{ \"idx\" : 326, \"nvalue\" : 0, \"svalue\" : \"%.2f\" }", ActualSetCurrent);

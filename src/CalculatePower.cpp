@@ -6,22 +6,37 @@
 // Calculate the set power both for charger and inverter.
 int CalculatePower(int ActGridPower, int ActBatPower, int PowResCharger, int MaxPowCharger, int PowResInv, int MaxPowerInv)
 {
-        int SetPower;
+    int SetPower;
+    PowResCharger = -PowResCharger;
 
-        if ((PowResCharger + ActGridPower) < 0)
-        { // goal is to have a reserve of minPower
-            SetPower = ActBatPower - int((PowResCharger + ActGridPower) / 3);
+    if (ActBatPower < 0) {                                          // if we charge the battery
+
+        if (ActGridPower < (PowResCharger) ) {                        // and we still have sufficient solar power
+           SetPower = ActBatPower  - int((PowResCharger - ActGridPower) / 3);   // than increase the charging power
         }
-        else if (((PowResCharger / 2) + ActGridPower) < 0)
-        { // however till minPower/2 the set value is not adjusted
+        else if (ActGridPower <= (PowResCharger/2)) {                // in the range of the reserve do not change
             SetPower = ActBatPower;
         }
-        else
-        { // if we come under minPower/2, than we
-            SetPower = ActGridPower - int((PowResCharger + ActGridPower) / 2);
+        else if (ActGridPower > (PowResCharger/2)) {                // if there if no reserve, than reduce the charging power fast
+            SetPower = ActBatPower + int(( ActGridPower - PowResCharger  ) / 2);
+
         }
 
-        SetPower = constrain(SetPower, 0, MaxPowCharger); // limit the range of control power to 0 and maxPower
-        //return SetPower;
-        return 0;
+    }
+    else if (ActBatPower >= 0 ) {                                    // if we discharge the battery
+
+        if (ActGridPower < (PowResInv /2) ) {                        // and we get close to 0 imported power
+           SetPower = ActBatPower  - int((PowResInv - ActGridPower) / 2);   // than decrease the charging power fast
+        }
+        else if (ActGridPower <= (PowResInv)) {                // in the range of the reserve do not change
+            SetPower = ActBatPower;
+        }
+        else if (ActGridPower > (PowResInv)) {                // if we are above the reseerve, than increase the discharging power
+            SetPower = ActBatPower + int(( ActGridPower - PowResInv ) / 3);
+        }
+
+    }
+
+        SetPower = constrain(SetPower, -MaxPowCharger, MaxPowerInv); // limit the range of control power to 0 and maxPower
+        return SetPower;
 }

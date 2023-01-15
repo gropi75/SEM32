@@ -5,12 +5,12 @@ ESP32 project to control the Huawei R4850G2 Power Supply for a solar powered LIF
  
 Function: CalculatePower.cpp\int CalculatePower(int ActGridPower, int ActBatPower, int PowResCharger, int MaxPowCharger, int PowResInv, int MaxPowerInv)
 
-Positive ActGridPower means, we import power, so we should discharge the battery with the inverter
-Negative ActGridPower means, we export power, so we can charge the battery
+Positive ActGridPower means, we import power, so we should discharge the battery with the inverter.
+Negative ActGridPower means, we export power, so we can charge the battery.
 
 Same logic applies to the battery:
-Positive ActBatPower means, we dischcharge the battery
-Negative ActBatPower means, we charge the battery
+Positive ActBatPower means, we dischcharge the battery.
+Negative ActBatPower means, we charge the battery.
 
 Cases:
 1) we already charge the battery and still have sufficient solar-power (ActGridPower is negative / less than PowerResCharger)
@@ -21,7 +21,7 @@ if ActBatPower is negative
 
 2) we charge the battery but do not have sufficient solar power any more (ActGridPower is positive / bigger than PowResCharger). We have to reduce the charging power fast.
 
-if ActGridPower is negative
+if ActBatPower is negative
     and if ActGridPower is more than PowerResCharger
         than increase ActBatPower fast (0.5x)
 

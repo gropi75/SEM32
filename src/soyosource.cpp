@@ -30,7 +30,7 @@ https://github.com/ChrisHomewood/MQTT_to_Soyosource-Inverter_RS485/blob/main/out
 
 #include <SoftwareSerial.h>
 #define RS485_PORT_TX 18  // GPIO18 
-#define RS485_PORT_RX 5  // GPIO5
+#define RS485_PORT_RX 19   // GPIO19
 #define RS485_PORT_EN 4  // GPIO4
 SoftwareSerial RS485_Port;
 const int numBytes = 20;
