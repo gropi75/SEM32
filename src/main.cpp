@@ -2,7 +2,6 @@
 ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-point-with-esp32
 
 
-Implementen dashboard: https://ayushsharma82.github.io/ESP-DASH/
 Open: Use of https://github.com/s00500/ESPUI
 
 Pinpout:
@@ -12,7 +11,7 @@ GPIO4:  CAN
 GPIO5:  CAN
 
 Inverter (RS485)
-GPIO18: TX 
+GPIO18: TX
 GPIO19: RX
 GPIO4: EN (if needed by the transceiver)
 
@@ -32,32 +31,21 @@ BMS (RS485)
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <CAN.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
 #include <PubSubClient.h>
-
 #include <ESPAsyncWebServer.h>
-#include <ESPDash.h>
 
 #include "huawei.h"
 #include "commands.h"
 #include "main.h"
-
 #include "soyosource.h"
-#include "CalculatePower.h"
-
+#include "PowerFunctions.h"
 #include "secrets.h"
 
 WiFiServer server(23);
-WiFiClient serverClient;         // for OTA
-WiFiClient current_clamp_client; // or WiFiClientSecure for HTTPS; to connect to current sensor
-HTTPClient http;                 // to connect to current sensor
+WiFiClient serverClient; // for OTA
 
 WiFiClient mqttclient; // to connect to MQTT broker
 PubSubClient PSclient(mqttclient);
-
-AsyncWebServer webserver(80); // for Dashoard
-ESPDash dashboard(&webserver);
 
 const char ESP_Hostname[] = "Battery_Control_ESP32";
 
@@ -78,50 +66,17 @@ namespace Main
     float ActualSetCurrent = 0;
     int PowerReserveCharger = 15;
     int PowerReserveInv = 15;
+    int MaxPowerCharger = 2000;
+    int MaxPowerInv = 200;
     bool g_EnableCharge = true;
-
-    /*
-      Dashboard Cards
-      Format - (Dashboard Instance, Card Type, Card Name, Card Symbol(optional) )
-    */
-    Card CardDeviceStatus(&dashboard, STATUS_CARD, "Device Status", "idle");
-    Card CardActualPower(&dashboard, GENERIC_CARD, "Home Grid Power", "W");
-    Card CardActualVoltage(&dashboard, GENERIC_CARD, "Battery Voltage", "V");
-    Card CardActualCurrent(&dashboard, GENERIC_CARD, "Charing Current", "A");
-    Card CardActualSetPower(&dashboard, GENERIC_CARD, "Actual Set Power", "W");
-    Card CardActualSetVoltage(&dashboard, GENERIC_CARD, "Actual Set Voltage", "V");
-    Card CardActualSetCurrent(&dashboard, GENERIC_CARD, "Actual Set Current", "A");
-    Card TargetPowerReserveCharger(&dashboard, SLIDER_CARD, "Power Reserve", "W", 0, 100);
-    Card CardSetVoltage(&dashboard, SLIDER_CARD, "Charge Voltage", "V", 54.4, 57.6);
-    Card CardEnableCharge(&dashboard, BUTTON_CARD, "Enable charing");
 
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
 
-    // Get actual power from the central power meter.
-    int getActualPower()
-    {
-        int actPower;
-        http.begin(current_clamp_client, "http://" + String(current_clamp_ip) + String(current_clamp_cmd));
-        int httpCode = http.GET(); // send the request
-        if (httpCode > 0)
-        {                                      // check the returning code
-            String payload = http.getString(); // Get the request response payload
-            // Stream input;
-            StaticJsonDocument<192> doc;
-            DeserializationError error = deserializeJson(doc, payload);
-            if (error)
-            {
-                Serial.print(F("deserializeJson() failed: "));
-                Serial.println(error.f_str());
-                // return NULL;
-                return 0;
-            }
-            JsonObject StatusSNS_SML = doc["StatusSNS"][String(sensor_resp)];
-            actPower = StatusSNS_SML[String(sensor_resp_power)]; // -2546
-        }
-        return actPower;
-    }
+    char current_clamp_ip[40] = "192.168.188.127";
+    char current_clamp_cmd[40] = "/cm?cmnd=status+10";
+    char sensor_resp[20] = "SML";               // or "MT175"
+    char sensor_resp_power[20] = "DJ_TPWRCURR"; // or "P"
 
     void onCANReceive(int packetSize)
     {
@@ -200,8 +155,6 @@ namespace Main
                 //  Serial.println("off");
                 g_EnableCharge = false;
             }
-            CardEnableCharge.update(g_EnableCharge);
-            dashboard.sendUpdates();
         }
     }
 
@@ -211,10 +164,6 @@ namespace Main
         while (!Serial)
             ;
         Serial.println("BOOTED!");
-
-        // PSU enable pin
-        // pinMode(POWER_EN_GPIO, OUTPUT_OPEN_DRAIN);
-        // digitalWrite(POWER_EN_GPIO, 0); // Default = ON
 
         WiFi.setHostname(ESP_Hostname);
         WiFi.begin(g_WIFI_SSID, g_WIFI_Passphrase);
@@ -227,14 +176,14 @@ namespace Main
         WiFi.persistent(true);
 
         Serial.print("[*] Network information for ");
-        Serial.println(ssid);
+        Serial.println(g_WIFI_SSID);
 
         Serial.println("[+] BSSID : " + WiFi.BSSIDstr());
         Serial.print("[+] Gateway IP : ");
         Serial.println(WiFi.gatewayIP());
         Serial.print("[+] Subnet Mask : ");
         Serial.println(WiFi.subnetMask());
-        Serial.println((String)"[+] RSSI : " + WiFi.RSSI() + " dB");
+        Serial.println((String) "[+] RSSI : " + WiFi.RSSI() + " dB");
         Serial.print("[+] ESP32 IP : ");
         Serial.println(WiFi.localIP());
         Serial.print("[+] ESP32 hostnape : ");
@@ -290,39 +239,6 @@ namespace Main
         reconnect();
         */
 
-        TargetPowerReserveCharger.attachCallback([&](int value) { /* Attach Slider Callback */
-                                                                  /* Make sure we update our slider's value and send update to dashboard */
-                                                                  TargetPowerReserveCharger.update(value);
-                                                                  dashboard.sendUpdates();
-                                                                  PowerReserveCharger = value;
-        });
-
-        /*
-        We provide our attachCallback with a lambda function to handle incomming data
-        `value` is the boolean sent from your dashboard
-        */
-        CardEnableCharge.update(g_EnableCharge);
-        CardEnableCharge.attachCallback([&](bool value)
-                                        {
-        //Serial.println("[CardEnableCharge] Button Callback Triggered: "+String((value)?"true":"false"));
-        g_EnableCharge = value;
-        CardEnableCharge.update(value);
-        dashboard.sendUpdates(); });
-
-        CardSetVoltage.attachCallback([&](int value) { /* Attach Slider Callback */
-                                                       /* Make sure we update our slider's value and send update to dashboard */
-                                                       CardSetVoltage.update(value);
-                                                       dashboard.sendUpdates();
-                                                       ActualSetVoltage = value;
-        });
-
-        webserver.begin(); // start Asynchron Webserver
-
-        // update dashboard
-        TargetPowerReserveCharger.update(PowerReserveCharger);
-        CardSetVoltage.update(ActualSetVoltage);
-        CardDeviceStatus.update("Running", "success");
-        dashboard.sendUpdates();
         Serial.println("Init done");
     }
 
@@ -337,18 +253,12 @@ namespace Main
         return &Serial;
     }
 
-#ifdef test_debug
-    int increm = 1, count = 70;
-    int ActualSetPower_old = 0;
-#endif
-
     void loop()
     {
-#ifndef test_debug
+
         int packetSize = CAN.parsePacket();
         if (packetSize)
             onCANReceive(packetSize);
-#endif
 
         ArduinoOTA.handle();
         if (server.hasClient())
@@ -360,69 +270,31 @@ namespace Main
         if (!serverClient)
             serverClient.stop();
 
-
         if ((millis() - g_Time1000) > 1000)
         {
-            #ifndef test_debug
+#ifndef test_debug
 
             Huawei::every1000ms();
-            
+
             PSclient.loop();
-            #endif
+#endif
 
             // update the value for the inverter every second
             sendpowertosoyo(ActualSetPowerInv);
             g_Time1000 = millis();
         }
 
-
         if ((millis() - g_Time5000) > 5000)
         {
-#ifndef test_debug
             Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
             // reads actual power every 5 seconds
-            ActualPower = getActualPower();
+            ActualPower = getActualPower(current_clamp_ip, current_clamp_cmd, sensor_resp, sensor_resp_power);
             ActualVoltage = info.output_voltage;
             ActualCurrent = info.output_current;
-#endif
-
-#ifdef test_debug
-            ActualPower = getActualPower(); //-ActualSetPower;
-            //ActualPower = increm * random(20) + ActualPower - ActualSetPower + ActualSetPower_old; // for simulation with random values
-            // ActualPower+= 10*increm;
-            ActualSetPower_old = ActualSetPower;
-            if (count == 100)
-            {
-                increm = 0 - increm;
-                count = 0;
-            }
-            count++;
-
-#ifdef wifitest
-
-            switch (WiFi.status())
-            {
-            case WL_NO_SSID_AVAIL:
-                Serial.println("Configured SSID cannot be reached");
-                break;
-            case WL_CONNECTED:
-                Serial.println("Connection successfully established");
-                break;
-            case WL_CONNECT_FAILED:
-                Serial.println("Connection failed");
-                break;
-            }
-            Serial.printf("Connection status: %d\n", WiFi.status());
-            Serial.print("RRSI: ");
-            Serial.println(WiFi.RSSI());
-
-#endif
-
-#endif
 
             // calculate desired power
-            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, 1000, PowerReserveInv, 600);
+            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
 
             // decide, whether the charger or inverter shall be activated
 
@@ -437,31 +309,20 @@ namespace Main
                 ActualSetPowerInv = 0;
             }
 
-#ifndef test_debug
             if (g_EnableCharge)
             {
-                CardDeviceStatus.update("Charging", "success");
             }
             else if (!g_EnableCharge)
             {
                 ActualSetPowerCharger = 0;
-                CardDeviceStatus.update("Output disabled", "idle");
             }
-#endif
 
-// send commands to the charger and inverter
+            // send commands to the charger and inverter
             sendpowertosoyo(ActualSetPowerInv);
-#ifndef test_debug
 
             Huawei::setVoltage(ActualSetVoltage, false);
             ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
-#endif
-
-#ifdef test_debug
-            Serial.print(count);
-            Serial.print("   ");
-#endif
 
             Serial.print(ActualPower);
             Serial.print("   ");
@@ -470,28 +331,13 @@ namespace Main
             Serial.print(ActualSetPowerInv);
             Serial.print("   ");
             Serial.print(ActualSetPowerCharger);
-/*
-#ifndef test_debug
-            Serial.print("   ");
-            Serial.print(ActualSetVoltage);
-            Serial.print("   ");
-            Serial.print(ActualSetCurrent);
-#endif
-*/
+
             Serial.println();
             // char temp[60];
             // dtostrf(ActualSetCurrent,2,2,temp);
             // sprintf(temp, "{ \"idx\" : 326, \"nvalue\" : 0, \"svalue\" : \"%.2f\" }", ActualSetCurrent);
             // PSclient.publish("domoticz/in", temp);
             // PSclient.loop();
-            CardActualPower.update(ActualPower);
-            CardActualVoltage.update(ActualVoltage);
-            CardActualCurrent.update(ActualCurrent);
-            CardActualSetPower.update(ActualSetPower);
-            CardActualSetVoltage.update(ActualSetVoltage);
-            CardActualSetCurrent.update(ActualSetCurrent);
-            CardEnableCharge.update(g_EnableCharge);
-            dashboard.sendUpdates();
 
             g_Time5000 = millis();
         }
