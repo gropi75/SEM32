@@ -29,10 +29,42 @@ BMS (RS485)
 
 #include <Arduino.h>
 #include <WiFi.h>
+
 #include <ArduinoOTA.h>
 #include <CAN.h>
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
+#define WEBSERVER_H
+#include <ESPAsyncWebServer.h>    // https://github.com/lorol/ESPAsyncWebServer.git 
+//#define USE_LittleFS
+
+#if defined(ESP8266)
+  /* ESP8266 Dependencies */
+  #include <ESP8266WiFi.h>
+  #include <ESPAsyncTCP.h>
+  #include <ESPAsyncWebServer.h>    // https://github.com/lorol/ESPAsyncWebServer.git 
+  #include <ESP8266mDNS.h>
+//  #include <FS.h> 
+  #include <LittleFS.h>
+  FS* filesystem = &LittleFS;
+  #define FileFS    LittleFS
+  #define FS_Name  "LittleFS"
+
+#elif defined(ESP32)
+  /* ESP32 Dependencies */
+  #include <WiFi.h>
+  #include <AsyncTCP.h>
+
+//  #include <SPIFFS.h>
+  #include "FS.h"
+  #include <LittleFS.h>
+  FS* filesystem = &LittleFS;
+  #define FileFS    LittleFS
+  #define FS_Name       "LittleFS"
+#endif
+// Littfs error. Solution: update : pio pkg update -g -p espressif32
+
+#include <ESPUI.h>
 #include <PubSubClient.h>
-#include <ESPAsyncWebServer.h>
 
 #include "huawei.h"
 #include "commands.h"
@@ -46,6 +78,10 @@ WiFiClient serverClient; // for OTA
 
 WiFiClient mqttclient; // to connect to MQTT broker
 PubSubClient PSclient(mqttclient);
+
+// You only need to format the filesystem once
+//#define FORMAT_FILESYSTEM       true
+#define FORMAT_FILESYSTEM         false
 
 const char ESP_Hostname[] = "Battery_Control_ESP32";
 
@@ -77,6 +113,9 @@ namespace Main
     char current_clamp_cmd[40] = "/cm?cmnd=status+10";
     char sensor_resp[20] = "SML";               // or "MT175"
     char sensor_resp_power[20] = "DJ_TPWRCURR"; // or "P"
+
+uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv;
+uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv ;
 
     void onCANReceive(int packetSize)
     {
@@ -165,7 +204,39 @@ namespace Main
             ;
         Serial.println("BOOTED!");
 
-        WiFi.setHostname(ESP_Hostname);
+        ESPUI.setVerbosity(Verbosity::Quiet);
+        // to prepare the filesystem
+        // ESPUI.prepareFileSystem();
+
+  //WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wm;
+  //  wm.setWiFiAutoReconnect(true);
+
+    // reset settings - wipe stored credentials for testing
+    // these are stored by the esp library
+    // wm.resetSettings();
+
+    // Automatically connect using saved credentials,
+    // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
+    // if empty will auto generate SSID, if password is blank it will be anonymous AP (wm.autoConnect())
+    // then goes into a blocking loop awaiting configuration and will return success result
+
+    bool res;
+    // res = wm.autoConnect(); // auto generated AP name from chipid
+    // res = wm.autoConnect("AutoConnectAP"); // anonymous ap
+    res = wm.autoConnect("AutoConnectAP","password"); // password protected ap
+
+    if(!res) {
+        Serial.println("Failed to connect");
+        // ESP.restart();
+    } 
+    else {
+        //if you get here you have connected to the WiFi    
+        Serial.println("WiFi connected... :)");
+    }
+
+
+/*        WiFi.setHostname(ESP_Hostname);
         WiFi.begin(g_WIFI_SSID, g_WIFI_Passphrase);
         while (WiFi.status() != WL_CONNECTED)
         {
@@ -188,6 +259,7 @@ namespace Main
         Serial.println(WiFi.localIP());
         Serial.print("[+] ESP32 hostnape : ");
         Serial.println(WiFi.getHostname());
+*/
 
         ArduinoOTA.onStart([]()
                            {
@@ -238,6 +310,25 @@ namespace Main
         PSclient.setCallback(callback);
         reconnect();
         */
+
+// initialize ESPUI
+uint16_t  TabStatus = ESPUI.addControl(ControlType::Tab, "Status", "Status");
+uint16_t  TabBatteryInfo = ESPUI.addControl(ControlType::Tab, "Info", "Info");
+uint16_t  TabSettings = ESPUI.addControl(ControlType::Tab, "WiFi Settings", "Settings");
+
+gui_ActualSetPower = ESPUI.addControl(ControlType::Label, "Actual Set Power [W]", "0", ControlColor::Emerald, TabStatus);
+gui_ActualSetPowerCharger = ESPUI.addControl(ControlType::Label, "Actual Power Charger [W]", "0", ControlColor::Emerald, TabStatus);
+gui_ActualSetPowerInv = ESPUI.addControl(ControlType::Label, "Actual Power Inverter [W]", "0", ControlColor::Emerald, TabStatus);
+gui_MaxPowerCharger = ESPUI.addControl(ControlType::Label, "Max Power Charger [W]", "0", ControlColor::Emerald, TabStatus);
+gui_MaxPowerInv = ESPUI.addControl(ControlType::Label, "Max Power Inverter[W]", "0", ControlColor::Emerald, TabStatus);
+gui_PowerReserveCharger = ESPUI.addControl(ControlType::Label, "Power Reserve Charger [W]", "0", ControlColor::Emerald, TabStatus);
+gui_PowerReserveInv = ESPUI.addControl(ControlType::Label, "Power Reserve Inverter [W]", "0", ControlColor::Emerald, TabStatus);
+
+// Settings tab
+
+// Battery Info Tab
+// start ESPUI
+ESPUI.begin("Battery Management");
 
         Serial.println("Init done");
     }
@@ -323,6 +414,15 @@ namespace Main
             Huawei::setVoltage(ActualSetVoltage, false);
             ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
+
+            ESPUI.updateLabel(gui_ActualSetPower, String(ActualSetPower)+"W");
+            ESPUI.updateLabel(gui_ActualSetPowerCharger, String(ActualSetPowerCharger)+"W");
+            ESPUI.updateLabel(gui_ActualSetPowerInv, String(ActualSetPowerInv)+"W");
+            ESPUI.updateLabel(gui_MaxPowerCharger, String(MaxPowerCharger)+"W");
+            ESPUI.updateLabel(gui_MaxPowerInv, String(MaxPowerInv)+"W");
+            ESPUI.updateLabel(gui_PowerReserveCharger, String(PowerReserveCharger)+"W");
+            ESPUI.updateLabel(gui_PowerReserveInv, String(PowerReserveInv)+"W");
+
 
             Serial.print(ActualPower);
             Serial.print("   ");

@@ -27,7 +27,7 @@ https://github.com/ChrisHomewood/MQTT_to_Soyosource-Inverter_RS485/blob/main/out
 
 */
 
-
+#include <Arduino.h>
 #include <SoftwareSerial.h>
 #define RS485_PORT_TX 18  // GPIO18 
 #define RS485_PORT_RX 19   // GPIO19
