@@ -3,6 +3,7 @@
 
 namespace Commands {
 
+
 int parseLine(char *line);
 
 struct CommandEntry

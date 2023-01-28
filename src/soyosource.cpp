@@ -29,19 +29,16 @@ https://github.com/ChrisHomewood/MQTT_to_Soyosource-Inverter_RS485/blob/main/out
 
 #include <Arduino.h>
 #include <SoftwareSerial.h>
-#define RS485_PORT_TX 18  // GPIO18 
-#define RS485_PORT_RX 19   // GPIO19
-#define RS485_PORT_EN 4  // GPIO4
 SoftwareSerial RS485_Port;
-const int numBytes = 20;
+const int SoyonumBytes = 20;
 
 
 // initialize RS485 bus for Soyosource communication
-void init_RS485() {
-    pinMode(RS485_PORT_EN, OUTPUT);
-    digitalWrite(RS485_PORT_EN, LOW);
+void Soyosource_init_RS485(uint8_t rx_pin, uint8_t tx_pin, uint8_t en_pin) {
+    pinMode(en_pin, OUTPUT);
+    digitalWrite(en_pin, LOW);
 
-    RS485_Port.begin(4800, SWSERIAL_8N1, RS485_PORT_RX, RS485_PORT_TX, false, numBytes);
+    RS485_Port.begin(4800, SWSERIAL_8N1, rx_pin, tx_pin, false, SoyonumBytes);
     
     // If the object did not initialize, then its configuration is invalid
     if (!RS485_Port) {  
@@ -54,8 +51,9 @@ void init_RS485() {
 
 
 
-// Function prepares string and sends powerdemand by serial interface  to Soyosource inverter
-void sendpowertosoyo (short demandpowersend) 
+// Function prepares serial string and sends powerdemand by serial interface  to Soyo
+// needs as input also the enable pin of the RS485 interface
+void sendpower2soyo (short demandpowersend, uint8_t en_pin) 
  {
  byte sendbyte[8]; // sendbyte is an array of 8 integers 8 bit (1 byte) long 
 
@@ -88,7 +86,7 @@ void sendpowertosoyo (short demandpowersend)
   }
  //___________________________________________END Sendpowertosoyo
 
-  digitalWrite(RS485_PORT_EN, HIGH);
+  digitalWrite(en_pin, HIGH);
   delay(100);
   RS485_Port.write(sendbyte, sizeof(sendbyte));
   RS485_Port.flush();
