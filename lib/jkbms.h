@@ -3,10 +3,6 @@
 #include <Arduino.h>
 const int JKBMS_numBytes = 320;   // data to receive from BMS
 
-// 4E 57 00 13 00 00 00 00 06 03 00 00 00 00 00 00 68 00 00 01 29
-// BMS commands
-byte ReadAllData[21] = {0x4E, 0x57, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00, 0x06, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x01, 0x29};    // read all
-byte ReadIdentifier[21] = {0x4E, 0x57, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x83, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x01, 0xA9}; // Read total voltage
 
 
 //BMS values
@@ -101,4 +97,5 @@ JK_BMS_RS485_Data JKBMS_read_data(uint8_t en_pin);
 // interpret/decode the data from the JK-BMS
 JK_BMS_Data JKBMS_DataAnalysis(byte* data2decode,int d2dlength);
 
+// interpret/decode the data from the JK-BMS
 JK_BMS_Data JKBMS_DataAnalysis2(JK_BMS_RS485_Data data2decode);

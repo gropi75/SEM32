@@ -2,6 +2,11 @@
 #include "jkbms.h"
 HardwareSerial JKBMS_RS485_Port (2);
 
+// 4E 57 00 13 00 00 00 00 06 03 00 00 00 00 00 00 68 00 00 01 29
+// BMS commands
+byte ReadAllData[21] = {0x4E, 0x57, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00, 0x06, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x01, 0x29};    // read all
+byte ReadIdentifier[21] = {0x4E, 0x57, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00, 0x03, 0x03, 0x00, 0x83, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x01, 0xA9}; // Read total voltage
+
 
 // initialize RS485 bus for JK_BMS communication
 void JKBMS_init_RS485(uint8_t rx_pin, uint8_t tx_pin, uint8_t en_pin)
@@ -12,14 +17,14 @@ void JKBMS_init_RS485(uint8_t rx_pin, uint8_t tx_pin, uint8_t en_pin)
   JKBMS_RS485_Port.begin(115200, SERIAL_8N1, rx_pin, tx_pin, false, 500);
 }
 
-// get data from JKBMS
+// get raw data from JK-BMS
 JK_BMS_RS485_Data JKBMS_read_data(uint8_t en_pin)
 {
 
   JK_BMS_RS485_Data Returnvalue;
   Returnvalue.length = 0;
   unsigned long receivingtimer = 0;
-  const int receivingtime = 500; // 0.5 Sekunde
+  const int receivingtime = 300; // 0.3 Sekunde
 
   digitalWrite(en_pin, HIGH);
   delay(100);
@@ -41,10 +46,9 @@ JK_BMS_RS485_Data JKBMS_read_data(uint8_t en_pin)
   return Returnvalue;
 }
 
-// Interprets the data from the JK-BMS
-// returns a structure as defined in jkbms.h
+// Interprets the data from the JK-BMS; returns a structure as defined in jkbms.h
 JK_BMS_Data JKBMS_DataAnalysis(byte *data2decode, int d2dlength)
-//JK_BMS_Data JKBMS_DataAnalysis2(JK_BMS_RS485_Data data2decode)
+
 {
   float min = 4, max = 0; // to store the min an max cell voltage
   uint16_t temp;
@@ -433,7 +437,7 @@ JK_BMS_Data JKBMS_DataAnalysis(byte *data2decode, int d2dlength)
   return Decoded;
 }
 
-
+// interpret/decode the data from the JK-BMS
 JK_BMS_Data JKBMS_DataAnalysis2(JK_BMS_RS485_Data data2decode)
 {
   float min = 4, max = 0; // to store the min an max cell voltage
