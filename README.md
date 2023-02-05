@@ -1,5 +1,5 @@
 # ESP32_r4850g2
-ESP32 project to control the Huawei R4850G2 Power Supply for a solar powered LIFEPO4 48V battery pack
+ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource inverter for a solar powered LIFEPO4 48V battery pack
 
 
 Information: 
@@ -10,7 +10,7 @@ Hardware components:
 
 Inverter:  
     Type:                   GNT 1200LIM 48 
-    MAX: Const. Power:      900W
+    MAX: Const. Power:      800W (1200W solar operation)
 Charger:    
     Type:                   Huawei R4850G2
 BMS: 
@@ -24,7 +24,7 @@ Battary cells:
     Std. charge/Discharge:  1.0C
 
 
-Controller:                 ESPRESSIF ESP32-WROM-32U (with ext. Antenna)
+Controller:                 ESPRESSIF ESP32-WROOM-32U (with ext. Antenna)
 CAN Driver:                 
     Driver IC:              SN65HVD230
 Serial Driver:              
@@ -33,6 +33,9 @@ Display:
     Driver:                 SSD1306
     Description:            4 Pin 0.96 Zoll OLED IIC Display Modul 128x64; 
     I2C Addr.:              0x3C
+Temperature Sensors:
+    1-Wire
+    Type:                   DS18B20 waterproof
 
 Connectors:
 USB upper: 
@@ -63,8 +66,8 @@ GPIO00      Boot            Push Burron 1
 GPIO01
 GPIO02
 GPIO03
-GPIO04      CAN HI          Charger                 SN65HVD230
-GPIO05      CAN LO          Charger                 SN65HVD230
+GPIO04      CAN RX          Charger                 SN65HVD230
+GPIO05      CAN TX          Charger                 SN65HVD230
 GPIO06
 GPIO07
 GPIO08

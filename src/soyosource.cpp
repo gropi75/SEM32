@@ -28,8 +28,11 @@ https://github.com/ChrisHomewood/MQTT_to_Soyosource-Inverter_RS485/blob/main/out
 */
 
 #include <Arduino.h>
-#include <SoftwareSerial.h>
-SoftwareSerial RS485_Port;
+// #include <SoftwareSerial.h>
+// SoftwareSerial RS485_Port;
+
+
+HardwareSerial RS485_Port (1);
 const int SoyonumBytes = 20;
 
 
@@ -38,15 +41,16 @@ void Soyosource_init_RS485(uint8_t rx_pin, uint8_t tx_pin, uint8_t en_pin) {
     pinMode(en_pin, OUTPUT);
     digitalWrite(en_pin, LOW);
 
-    RS485_Port.begin(4800, SWSERIAL_8N1, rx_pin, tx_pin, false, SoyonumBytes);
+//    RS485_Port.begin(4800, SWSERIAL_8N1, rx_pin, tx_pin, false, SoyonumBytes);
+    RS485_Port.begin(4800, SERIAL_8N1, rx_pin, tx_pin, false, 100);
     
     // If the object did not initialize, then its configuration is invalid
-    if (!RS485_Port) {  
+/*    if (!RS485_Port) {  
     Serial.println("Invalid SoftwareSerial pin configuration, check config"); 
         while (1) {     // Don't continue with invalid configuration
         delay (1000);
         }
-    } 
+    } */
 }
 
 

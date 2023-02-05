@@ -25,7 +25,7 @@ RX:  GPIO26
 EN:  GPIO
 
 1-wire sensors
-Data:   33??????
+Data:   GPIO23
 
 Digital switches:
 1
@@ -45,6 +45,10 @@ Digital switches:
 #define Soyo_RS485_PORT_TX 18 // GPIO18
 #define Soyo_RS485_PORT_RX 19 // GPIO19
 #define Soyo_RS485_PORT_EN 23 // GPIO23
+
+#define JKBMS_RS485_PORT_TX 25 // GPIO25
+#define JKBMS_RS485_PORT_RX 26 // GPIO26
+#define JKBMS_RS485_PORT_EN 33 // GPIO33    ???????
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -87,6 +91,7 @@ FS *filesystem = &LittleFS;
 #include "main.h"
 #include "soyosource.h"
 #include "PowerFunctions.h"
+#include "jkbms2.h"
 #include "secrets.h"
 
 TaskHandle_t TaskCan;
@@ -102,7 +107,7 @@ PubSubClient PSclient(mqttclient);
 // #define FORMAT_FILESYSTEM       true
 #define FORMAT_FILESYSTEM false
 
-const char ESP_Hostname[] = "Battery_Control_ESP32";
+const char ESP_Hostname[] = "Battery_Control_ESP32";       // Battery_Control_ESP32
 
 namespace Main
 {
@@ -122,12 +127,32 @@ namespace Main
     int PowerReserveCharger = 15;
     int PowerReserveInv = 15;
     int MaxPowerCharger = 2000;
-    int MaxPowerInv = 200;
+    int MaxPowerInv = 100;
     bool g_EnableCharge = true;
+    bool g_EnableMQTT = true;
 
     unsigned long g_Time500 = 0;
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
+
+    char temp_char[10]; // for temporary storage of strings values
+    float tempfloat;
+    char mqtt_topic[34];
+
+    // BMS values as structure
+    JK_BMS_Data BMS;
+    JK_BMS_RS485_Data receivedRawData;
+    // ///////////////////////////////////////for testing
+
+    HardwareSerial JKBMS_RS485_Port2 (2);
+
+    byte receivedBytes_main[320];
+    int receivedLength = 0;
+    unsigned long receivingtimer = 0;
+    const int receivingtime500 = 500; // 0.5 Sekunde
+    int ndx = 0;
+    void DataAnalysis();
+    // ///////////////////////////////for testing
 
     char current_clamp_ip[40] = "192.168.188.127";
     char current_clamp_cmd[40] = "/cm?cmnd=status+10";
@@ -139,6 +164,13 @@ namespace Main
     uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange;
     uint16_t gui_GridPower, gui_ChargerVoltage, gui_ChargerCurrent, gui_ChargerPower;
     uint16_t gui_ChargerACVoltage, gui_ChargerACCurrent, gui_ChargerACPower, gui_ChargerACfreq;
+
+    uint16_t guiVoltageCell0, guiVoltageCell1, guiVoltageCell2, guiVoltageCell3, guiVoltageCell4;
+    uint16_t guiVoltageCell5, guiVoltageCell6, guiVoltageCell7, guiVoltageCell8, guiVoltageCell9;
+    uint16_t guiVoltageCell10, guiVoltageCell11, guiVoltageCell12, guiVoltageCell13, guiVoltageCell14, guiVoltageCell15;
+    uint16_t guiCapacity, guiSysWorkingTime, guiTotCapacity, guiChargeCurrent, guiLog;
+    uint16_t guiSOC, guiBattVoltage, guiBattStatus, guiCellDelta, guiAvgCellVoltage, guiCellCount;
+    uint16_t guiMOST, guiT1, guiT2;
 
     // Most UI elements are assigned this generic callback which prints some
     // basic information. Event types are defined in ESPUI.h
@@ -176,8 +208,9 @@ namespace Main
             }
             if (!serverClient)
                 serverClient.stop();
-            //PSclient.loop();
-            delay(50);
+            if (g_EnableMQTT)
+                PSclient.loop();
+            delay(200);
         }
     }
 
@@ -339,10 +372,22 @@ namespace Main
         Soyosource_init_RS485(Soyo_RS485_PORT_RX, Soyo_RS485_PORT_TX, Soyo_RS485_PORT_EN);
         Serial.println("Soyosource inverter RS485 setup done");
 
-        /*PSclient.setServer(mqtt_server, atoi(mqtt_port));
+        // initialize RS485 power for JK_BMS
+        // JKBMS_init_RS485(JKBMS_RS485_PORT_RX, JKBMS_RS485_PORT_TX, JKBMS_RS485_PORT_EN);
+
+        /////////////////////////////////////////////////////////////
+        pinMode(JKBMS_RS485_PORT_EN, OUTPUT);
+        digitalWrite(JKBMS_RS485_PORT_EN, LOW);
+        JKBMS_RS485_Port2.begin(115200, SERIAL_8N1, JKBMS_RS485_PORT_RX, JKBMS_RS485_PORT_TX, false, 500);
+        
+        ////////////////////////////////////////////////////////////
+
+        Serial.println("JK-BMS RS485 setup done");
+
+        PSclient.setServer(mqtt_server, atoi(mqtt_port));
         PSclient.setCallback(callback);
-        reconnect();
-        */
+        if (g_EnableMQTT)
+            reconnect();
 
         // initialize ESPUI
         uint16_t TabStatus = ESPUI.addControl(ControlType::Tab, "Status", "Status");
@@ -350,6 +395,8 @@ namespace Main
         uint16_t TabSettings = ESPUI.addControl(ControlType::Tab, "Settings", "Settings");
 
         ESPUI.addControl(ControlType::Separator, "Global", "", ControlColor::None, TabStatus);
+        guiBattStatus = ESPUI.addControl(ControlType::Label, "Battery status", "0", ControlColor::Emerald, TabStatus);
+        guiSOC = ESPUI.addControl(ControlType::Label, "SOC [%]", "0", ControlColor::Emerald, TabStatus);
         gui_ActualSetPower = ESPUI.addControl(ControlType::Label, "Actual Set Power [W]", "0", ControlColor::Emerald, TabStatus);
         gui_GridPower = ESPUI.addControl(ControlType::Label, "Actual Grid Power [W]", "0", ControlColor::Emerald, TabStatus);
 
@@ -366,8 +413,41 @@ namespace Main
         ESPUI.addControl(ControlType::Separator, "Inverter", "", ControlColor::None, TabStatus);
         gui_ActualSetPowerInv = ESPUI.addControl(ControlType::Label, "Actual Power Inverter [W]", "0", ControlColor::Emerald, TabStatus);
 
-        // Battery Info Tab
+        ESPUI.addControl(ControlType::Separator, "BMS", "", ControlColor::None, TabStatus);
+        guiBattVoltage = ESPUI.addControl(ControlType::Label, "Battery Voltage [V]", "0", ControlColor::Emerald, TabStatus);
+        guiChargeCurrent = ESPUI.addControl(ControlType::Label, "Current [A]", "0", ControlColor::Emerald, TabStatus);
+        guiAvgCellVoltage = ESPUI.addControl(ControlType::Label, "Avg.Cell Voltage [V]", "0", ControlColor::Emerald, TabStatus);
+        guiCellDelta = ESPUI.addControl(ControlType::Label, "Cell delta [V]", "0", ControlColor::Emerald, TabStatus);
+        guiMOST = ESPUI.addControl(ControlType::Label, "MOS Temperature [°C]", "0", ControlColor::Emerald, TabStatus);
+        guiT1 = ESPUI.addControl(ControlType::Label, "T1 [°C]", "0", ControlColor::Emerald, TabStatus);
+        guiT2 = ESPUI.addControl(ControlType::Label, "T2 [°C]", "0", ControlColor::Emerald, TabStatus);
 
+        // Battery Info Tab
+        ESPUI.addControl(ControlType::Separator, "Battery Infos", "", ControlColor::None, TabBatteryInfo);
+        guiCapacity = ESPUI.addControl(ControlType::Label, "Nominal capacity [Ah]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiCellCount = ESPUI.addControl(ControlType::Label, "Cell count", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiSysWorkingTime = ESPUI.addControl(ControlType::Label, "Working time", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiTotCapacity = ESPUI.addControl(ControlType::Label, "Cycle Capacity", "0", ControlColor::Emerald, TabBatteryInfo);
+
+        ESPUI.addControl(ControlType::Separator, "Cell Voltages [V]", "", ControlColor::None, TabBatteryInfo);
+        guiVoltageCell0 = ESPUI.addControl(ControlType::Label, "Cell 0", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell1 = ESPUI.addControl(ControlType::Label, "Cell 1", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell2 = ESPUI.addControl(ControlType::Label, "Cell 2", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell3 = ESPUI.addControl(ControlType::Label, "Cell 3", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell4 = ESPUI.addControl(ControlType::Label, "Cell 4", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell5 = ESPUI.addControl(ControlType::Label, "Cell 5", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell6 = ESPUI.addControl(ControlType::Label, "Cell 6", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell7 = ESPUI.addControl(ControlType::Label, "Cell 7", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell8 = ESPUI.addControl(ControlType::Label, "Cell 8", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell9 = ESPUI.addControl(ControlType::Label, "Cell 9", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell10 = ESPUI.addControl(ControlType::Label, "Cell 10", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell11 = ESPUI.addControl(ControlType::Label, "Cell 11", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell12 = ESPUI.addControl(ControlType::Label, "Cell 12", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell13 = ESPUI.addControl(ControlType::Label, "Cell 13", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell14 = ESPUI.addControl(ControlType::Label, "Cell 14", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiVoltageCell15 = ESPUI.addControl(ControlType::Label, "Cell 15", "0", ControlColor::Emerald, TabBatteryInfo);
+
+        ESPUI.addControl(ControlType::Separator, "(Dis-)Charge Settings", "", ControlColor::None, TabBatteryInfo);
         gui_MaxPowerCharger = ESPUI.addControl(ControlType::Label, "Max Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_MaxPowerInv = ESPUI.addControl(ControlType::Label, "Max Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_PowerReserveCharger = ESPUI.addControl(ControlType::Label, "Power Reserve Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
@@ -391,6 +471,7 @@ namespace Main
 
         // disable editing on settings page
         ESPUI.updateSwitcher(gui_enableChange, false);
+        ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
         ESPUI.setEnabled(gui_setMQTTIP, false);
         ESPUI.setEnabled(gui_setMQTTport, false);
         ESPUI.setEnabled(gui_SetMaxPowerCharger, false);
@@ -432,7 +513,7 @@ namespace Main
                 if (!serverClient)
                     serverClient.stop();   */
 
-        if ((millis() - g_Time500) > 10)
+        if ((millis() - g_Time500) > 500)
         {
 
             g_Time500 = millis();
@@ -445,6 +526,7 @@ namespace Main
 
             // update the value for the inverter every second
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
+
             g_Time1000 = millis();
         }
 
@@ -452,6 +534,39 @@ namespace Main
         {
             Huawei::sendGetData(0x00);
             Huawei::HuaweiInfo &info = Huawei::g_PSU;
+
+            /*            // get the BMS data
+                        receivedRawData = JKBMS_read_data(JKBMS_RS485_PORT_EN);
+                        // BMS = JKBMS_DataAnalysis(&receivedRawData.data, receivedRawData.length);
+                        BMS = JKBMS_DataAnalysis2(receivedRawData);
+            */
+
+            ///////////////////////////////////////////////////////////////
+
+            digitalWrite(JKBMS_RS485_PORT_EN, HIGH);
+            // char hex[5];
+            ndx = 0;
+            delay(10);
+            JKBMS_RS485_Port2.write(ReadAllData, sizeof(ReadAllData));
+            JKBMS_RS485_Port2.flush();
+            receivingtimer = millis();
+            digitalWrite(JKBMS_RS485_PORT_EN, LOW); // set RS485 to receive
+            delay(10);
+            while ((receivingtimer + 300) > millis())          // anstelle von 1000, receivingtime500
+            {
+                if (JKBMS_RS485_Port2.available() && ndx < 320)
+                {
+                    receivedBytes_main[ndx] = JKBMS_RS485_Port2.read();
+                    // sprintf(hex, "%02X", receivedBytes_main[ndx]);
+                    // Serial.print(hex);
+                    // Serial.print(" ");
+                    ndx++;
+                }
+                receivedLength = ndx;
+            }
+            DataAnalysis();
+
+            /////////////////////////////////////////////////////////////////
 
             // reads actual grid power every 5 seconds
             ActualPower = getActualPower(current_clamp_ip, current_clamp_cmd, sensor_resp, sensor_resp_power);
@@ -505,6 +620,77 @@ namespace Main
             ESPUI.updateLabel(gui_ChargerACPower, String(info.input_power) + "W");
             ESPUI.updateLabel(gui_ChargerACfreq, String(info.input_freq) + "Hz");
 
+            // update the BMS values also only every 5 sec
+
+            ESPUI.updateLabel(guiVoltageCell0, String(BMS.cellVoltage[0], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell1, String(BMS.cellVoltage[1], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell2, String(BMS.cellVoltage[2], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell3, String(BMS.cellVoltage[3], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell4, String(BMS.cellVoltage[4], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell5, String(BMS.cellVoltage[5], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell6, String(BMS.cellVoltage[6], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell7, String(BMS.cellVoltage[7], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell8, String(BMS.cellVoltage[8], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell9, String(BMS.cellVoltage[9], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell10, String(BMS.cellVoltage[10], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell11, String(BMS.cellVoltage[11], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell12, String(BMS.cellVoltage[12], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell13, String(BMS.cellVoltage[13], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell14, String(BMS.cellVoltage[14], 3) + "V");
+            ESPUI.updateLabel(guiVoltageCell15, String(BMS.cellVoltage[15], 3) + "V");
+
+            ESPUI.updateLabel(guiSOC, String(BMS.SOC) + "%");
+            ESPUI.updateLabel(guiBattStatus, String(BMS.sBatteryStatus));
+            ESPUI.updateLabel(guiBattVoltage, String(BMS.Battery_Voltage, 3) + "V");
+            ESPUI.updateLabel(guiChargeCurrent, String(BMS.Charge_Current, 3) + "A");
+            ESPUI.updateLabel(guiAvgCellVoltage, String(BMS.Battery_Voltage / BMS.CellCount, 3) + "V");
+            ESPUI.updateLabel(guiCellDelta, String(BMS.Delta_Cell_Voltage, 3) + "V");
+            ESPUI.updateLabel(guiMOST, String(BMS.MOS_Temp, 0) + "°C");
+            ESPUI.updateLabel(guiT1, String(BMS.Battery_T1, 0) + "°C");
+            ESPUI.updateLabel(guiT2, String(BMS.Battery_T2, 0) + "°C");
+
+            ESPUI.updateLabel(guiCapacity, String(BMS.Nominal_Capacity) + "Ah");
+            ESPUI.updateLabel(guiSysWorkingTime, String(BMS.days) + " days " + String(BMS.hr) + ":" + String(BMS.mi));
+            //    char str[8];
+            //    sprintf(str, "%X", BMS.Uptime);
+            //    ESPUI.updateLabel(guiSysWorkingTime, str);
+            ESPUI.updateLabel(guiTotCapacity, String(BMS.totBattCycleCapacity) + "Ah");
+            ESPUI.updateLabel(guiCellCount, String(BMS.CellCount));
+
+            if (g_EnableMQTT)
+            {
+                if (PSclient.connected()) // only send data, if the server is connected
+                {
+                    sprintf(temp_char, "%d", BMS.SOC);
+                    sprintf(mqtt_topic, "%s/Data/SOC", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.Battery_Voltage);
+                    sprintf(mqtt_topic, "%s/Data/Battery_Voltage2", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.Charge_Current);
+                    sprintf(mqtt_topic, "%s/Data/Charge_Current2", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.Delta_Cell_Voltage);
+                    sprintf(mqtt_topic, "%s/Data/Delta_Cell_Voltage2", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.MOS_Temp);
+                    sprintf(mqtt_topic, "%s/Data/MOS_Temp", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.Battery_T1);
+                    sprintf(mqtt_topic, "%s/Data/Battery_T1", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+
+                    sprintf(temp_char, "%.3f", BMS.Battery_T2);
+                    sprintf(mqtt_topic, "%s/Data/Battery_T2", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, temp_char);
+                }
+            }
+
             /*
                         Serial.print(ActualPower);
                         Serial.print("   ");
@@ -546,12 +732,38 @@ namespace Main
         {
             (sender->value).toCharArray(mqtt_port, ((sender->value).length() + 1));
         }
+        if (sender->id == gui_enableMQTT)
+        {
+            if (type == S_ACTIVE)
+            {
+                g_EnableMQTT = true;
+                reconnect();
+            }
+            if (type == S_INACTIVE)
+            {
+                g_EnableMQTT = false;
+                PSclient.disconnect();
+            }
+        }
         if (sender->id == gui_testMQTT)
         {
             if (type == B_DOWN)
             {
-                // insert code to reconnect MQTT server
-                ESPUI.updateButton(gui_testMQTT, "OK");
+                ESPUI.updateButton(gui_testMQTT, "failed");
+                reconnect();
+                if (PSclient.connected())
+                {
+                    ESPUI.updateButton(gui_testMQTT, "OK");
+                    if (!g_EnableMQTT)
+                    { // is the general switch is disabled, than disconnect
+                        PSclient.disconnect();
+                    }
+                    else if (!PSclient.connected())
+                    {
+                        g_EnableMQTT = false;
+                        ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
+                    }
+                }
             }
         }
         if (sender->id == gui_enableChange)
@@ -587,6 +799,394 @@ namespace Main
             Serial.print("' = ");
             Serial.println(sender->value);
         */
+    }
+
+    //////////////////////////////////////////////////////
+
+    // interpret the data from the JK-BMS
+    void DataAnalysis()
+    {
+        float min = 4, max = 0; // to store the min an max cell voltage
+        uint16_t temp;
+
+        for (uint16_t i = 11; i < receivedLength - 5;)
+        {
+            switch (receivedBytes_main[i])
+            {
+            case 0x79: // Cell voltage
+                BMS.CellCount = receivedBytes_main[i + 1] / 3;
+                i += 2;
+                // Serial.print("Cell Voltages = ");
+                for (uint8_t n = 0; n < BMS.CellCount; n++)
+                {
+                    BMS.cellVoltage[n] = ((receivedBytes_main[i + 1] << 8) | receivedBytes_main[i + 2]) * 0.001;
+                    if (min > BMS.cellVoltage[n])
+                    {
+                        min = BMS.cellVoltage[n];
+                    }
+                    if (max < BMS.cellVoltage[n])
+                    {
+                        max = BMS.cellVoltage[n];
+                    }
+                    // Serial.print(cellVoltage[n], 3);
+                    // n<15 ? Serial.print("V, ") : Serial.println("V");
+                    i += 3;
+                }
+                BMS.Delta_Cell_Voltage = max - min;
+                break;
+
+            case 0x80: // Read tube temp.
+                BMS.MOS_Temp = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                if (BMS.MOS_Temp > 100)
+                {
+                    BMS.MOS_Temp = -(BMS.MOS_Temp - 100);
+                }
+                // Serial.print("MOS Temp = ");
+                // Serial.print(MOS_Temp, 3);
+                // Serial.println("C");
+                i += 3;
+                break;
+
+            case 0x81: // Battery inside temp
+                BMS.Battery_T1 = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                if (BMS.Battery_T1 > 100)
+                {
+                    BMS.Battery_T1 = -(BMS.Battery_T1 - 100);
+                }
+                // Serial.print("T1 = ");
+                // Serial.print(Battery_T1, 3);
+                // Serial.println("C");
+
+                i += 3;
+                break;
+
+            case 0x82: // Battery temp
+                BMS.Battery_T2 = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                if (BMS.Battery_T2 > 100)
+                {
+                    BMS.Battery_T2 = -(BMS.Battery_T2 - 100);
+                }
+                // Serial.print("T2 = ");
+                // Serial.print(Battery_T2, 3);
+                // Serial.println("C");
+
+                i += 3;
+                break;
+
+            case 0x83: // Total Batery Voltage
+                BMS.Battery_Voltage = (float)(((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]) * 0.01);
+                i += 3;
+                // Serial.print("Battery Voltage = ");
+                // Serial.print(Battery_Voltage, 3);
+                // Serial.println("V");
+
+                break;
+
+            case 0x84: // Current
+                temp = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                if (temp >> 15)
+                { // Charge current; if the highest bit 1 than charging
+                    BMS.Charge_Current = (float)(temp - 32768) * 0.01;
+                }
+                else
+                    BMS.Charge_Current = (float)(temp) * (-0.01); // Else it is the discharge current
+                i += 3;
+                break;
+
+            case 0x85:                               // Remaining Battery Capacity
+                BMS.SOC = receivedBytes_main[i + 1]; // in %
+                i += 2;
+                break;
+
+            case 0x86:                                         // Number of Battery Temperature Sensors
+                BMS.TempSensCount = receivedBytes_main[i + 1]; // in %
+                i += 2;
+                break;
+
+            case 0x87: // Cycle
+                BMS.Cycle_Count = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+                // 0x88 does not exist
+
+            case 0x89: // Total Battery cycle Capacity
+                BMS.totBattCycleCapacity = (((uint16_t)receivedBytes_main[i + 1] << 24 | receivedBytes_main[i + 2] << 16 | receivedBytes_main[i + 3] << 8 | receivedBytes_main[i + 4]));
+                i += 5;
+                break;
+
+            case 0x8a: // Total number of battery strings
+                BMS.CellCount = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+            case 0x8b: // Battery_Warning_Massage
+
+                /*bmsErrors                                           | JBD | JK |
+                bit0  single cell overvoltage protection              |  x  |    |
+                bit1  single cell undervoltage protection             |  x  |    |
+                bit2  whole pack overvoltage protection (Batterie)    |  x  | x  |
+                bit3  Whole pack undervoltage protection (Batterie)   |  x  | x  |
+                bit4  charging over-temperature protection            |  x  |    |
+                bit5  charging low temperature protection             |  x  |    |
+                bit6  Discharge over temperature protection           |  x  |    |
+                bit7  discharge low temperature protection            |  x  |    |
+                bit8  charging overcurrent protection                 |  x  | x  |
+                bit9  Discharge overcurrent protection                |  x  | x  |
+                bit10 short circuit protection                        |  x  |    |
+                bit11 Front-end detection IC error                    |  x  |    |
+                bit12 software lock MOS                               |  x  |    |
+                */
+
+                /* JKBMS
+                Bit 0:  Low capacity alarm
+                Bit 1:  MOS tube overtemperature alarm
+                Bit 2:  Charge over voltage alarm
+                Bit 3:  Discharge undervoltage alarm
+                Bit 4:  Battery overtemperature alarm
+                Bit 5:  Charge overcurrent alarm                        -> Bit 8
+                Bit 6:  discharge over current alarm                    -> Bit 9
+                Bit 7:  core differential pressure alarm
+                Bit 8:  overtemperature alarm in the battery box
+                Bit 9:  Battery low temperature
+                Bit 10: Unit overvoltage                                -> Bit 2
+                Bit 11: Unit undervoltage                               -> Bit 3
+                Bit 12: 309_A protection
+                Bit 13: 309_B protection
+                Bit 14: reserved
+                Bit 15: Reserved
+                */
+
+                BMS.WarningMsgWord = (((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]));
+                i += 3;
+                break;
+
+            case 0x8c: // Battery status information
+                /* JKBMS
+                Bit 0:  charging on
+                Bit 1:  discharge on
+                Bit 2:  equilization on
+                Bit 3:  battery down
+                Bit 4..15: reserved
+                */
+                BMS.BatteryStatus = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                strcpy(BMS.sBatteryStatus, "undefined");
+                strcpy(BMS.charge, "off");
+                strcpy(BMS.discharge, "off");
+                strcpy(BMS.balance, "off");
+
+                if ((BMS.BatteryStatus >> 3) & 0x01)
+                { // looking for bit 3
+                    strcpy(BMS.sBatteryStatus, "Battery Down");
+                }
+                else
+                {
+                    if (BMS.BatteryStatus & 0x01)
+                    { // looking for bit 0
+                        strcpy(BMS.charge, "on ");
+                    }
+                    else
+                        strcpy(BMS.charge, "off");
+
+                    strcpy(BMS.sBatteryStatus, "Charge:");
+                    strncat(BMS.sBatteryStatus, BMS.charge, 3);
+
+                    if ((BMS.BatteryStatus >> 1) & 0x01)
+                    { // looking for bit 1
+                        strcpy(BMS.discharge, "on ");
+                    }
+                    else
+                        strcpy(BMS.discharge, "off");
+
+                    strncat(BMS.sBatteryStatus, " Discharge:", 12);
+                    strncat(BMS.sBatteryStatus, BMS.discharge, 3);
+
+                    if ((BMS.BatteryStatus >> 2) & 0x01)
+                    { // looking for bit 2
+                        strcpy(BMS.balance, "on ");
+                    }
+                    else
+                        strcpy(BMS.charge, "off");
+
+                    strncat(BMS.sBatteryStatus, " Balance:", 10);
+                    strncat(BMS.sBatteryStatus, BMS.balance, 3);
+                }
+
+                break;
+
+            case 0x8e: // Total voltage overvoltage protection
+                BMS.OVP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]) * 0.001;
+                i += 3;
+                break;
+
+            case 0x8f: // Total voltage undervoltage protection
+                BMS.UVP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]) * 0.001;
+                i += 3;
+                break;
+
+            case 0x90: // Single overvoltage protection voltage
+                BMS.sOVP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+            case 0x91: // Cell overvoltage recovery voltage
+                BMS.sOVPR = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+            case 0x92:                                                                                   // Single overvoltage protection delay
+                BMS.sOVP_delay = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in seconds
+                i += 3;
+                break;
+
+            case 0x93: // Single undervoltage protection voltage
+                BMS.sUVP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+            case 0x94: // Monomer undervoltage recovery voltage
+                BMS.sUVPR = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]);
+                i += 3;
+                break;
+
+            case 0x95:                                                                                   // Single undervoltage protection delay
+                BMS.sUVP_delay = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in seconds
+                i += 3;
+                break;
+
+            case 0x96:                                                                                  // Cell voltage?pressure difference protection value
+                BMS.sVoltDiff = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in seconds
+                i += 3;
+                break;
+
+            case 0x97:                                                                                     // Discharge overcurrent protection value
+                BMS.dischargeOCP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in Ampere
+                i += 3;
+                break;
+
+            case 0x98:                                                                                           // Discharge overcurrent delay
+                BMS.dischargeOCP_delay = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in seconds
+                i += 3;
+                break;
+
+            case 0x99:                                                                                  // Charge overcurrent protection value
+                BMS.chargeOCP = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in Ampere
+                i += 3;
+                break;
+
+            case 0x9a:                                                                                        // Discharge overcurrent delay
+                BMS.chargeOCP_delay = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in seconds
+                i += 3;
+                break;
+
+            case 0x9b:                                                                                            // Balanced starting voltage
+                BMS.BalanceStartVoltage = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in Voltage
+                i += 3;
+                break;
+
+            case 0x9c:                                                                                       // Balanced opening pressure difference
+                BMS.BalanceVoltage = ((uint16_t)receivedBytes_main[i + 1] << 8 | receivedBytes_main[i + 2]); // in AVoltagempere
+                i += 3;
+                break;
+
+            case 0x9d: // Active balance switch
+                i += 2;
+                break;
+
+            case 0x9e: // Power tube temperature protection value
+                i += 3;
+                break;
+
+            case 0x9f: // Power tube temperature recovery value
+                i += 3;
+                break;
+
+            case 0xa0: // Temperature protection value in the battery box
+                i += 3;
+                break;
+
+            case 0xa1: // Temperature recovery value in the battery box
+                i += 3;
+                break;
+
+            case 0xa2: // Battery temperature difference protection value
+                i += 3;
+                break;
+
+            case 0xa3: // Battery charging high temperature protection value
+                i += 3;
+                break;
+
+            case 0xa4: // Battery discharge high temperature protection value
+                i += 3;
+                break;
+
+            case 0xa5: // Charging low temperature protection value
+                i += 3;
+                break;
+
+            case 0xa6: // Charging low temperature protection recovery value
+                i += 3;
+                break;
+            case 0xa7:
+                i += 3;
+                break;
+            case 0xa8:
+                i += 3;
+                break;
+            case 0xa9: // Battery string setting / Cell count
+                i += 2;
+                break;
+
+            case 0xaa: // Battery capacity setting; in AH
+                BMS.Nominal_Capacity = (((uint16_t)receivedBytes_main[i + 1] << 24 | receivedBytes_main[i + 2] << 16 | receivedBytes_main[i + 3] << 8 | receivedBytes_main[i + 4]));
+                i += 5;
+                // Serial.print("Battery capacity = ");
+                // Serial.print(Nominal_Capacity);
+                // Serial.println("Ah");
+                break;
+
+            case 0xab:
+                i += 2;
+                break;
+            case 0xac:
+                i += 2;
+                break;
+            case 0xad:
+                i += 3;
+                break;
+            case 0xae:
+                i += 2;
+                break;
+            case 0xaf:
+                i += 2;
+                break;
+            case 0xb0:
+                i += 3;
+                break;
+
+            case 0xb5: // Date of manufacture
+                i += 5;
+                break;
+
+            case 0xb6: // System working time in MINUTES
+                BMS.Uptime = (((uint16_t)receivedBytes_main[i + 1] << 24 | receivedBytes_main[i + 2] << 16 | receivedBytes_main[i + 3] << 8 | receivedBytes_main[i + 4]));
+                //        sec = Uptime % 60;
+                //        sec = 0;
+                //        Uptime /= 60;
+                /*        mi = Uptime % 60;
+                        Uptime /= 60;
+                        hr = Uptime % 24;
+                        days = Uptime /= 24;    */
+                i += 5;
+                break;
+
+            default:
+                i++;
+                break;
+            }
+        }
     }
 
 }
