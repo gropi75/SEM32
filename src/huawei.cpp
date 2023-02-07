@@ -17,27 +17,6 @@ HuaweiInfo g_PSU;
 void onRecvCAN(uint32_t msgid, uint8_t *data, uint8_t length)
 {
     HuaweiEAddr eaddr = HuaweiEAddr::unpack(msgid);
-    
-    
-//    Serial.printf("msgid: %x data:", msgid); // debug all CAN messages
-
-/*    Serial.printf("-DECODED MESSAGE ID-");
-
-    Serial.printf(" protoId: %02x", eaddr.protoId);
-    Serial.printf(" addr: %02x", eaddr.addr);
-    Serial.printf(" cmdId: %02x", eaddr.cmdId);
-    Serial.printf(" fromSrc: %02x", eaddr.fromSrc);
-    Serial.printf(" rev: %02x", eaddr.rev);
-    Serial.printf(" count: %02x", eaddr.count);
-
-    Serial.printf(" --- DATA ---");
-
-    for (int i = 0; i < length; i ++) {
-        Serial.printf(" %02x", data[i]);
-    }
-
-    Serial.printf("\n");
-*/
 
     switch(eaddr.cmdId)
     {
@@ -45,14 +24,13 @@ void onRecvCAN(uint32_t msgid, uint8_t *data, uint8_t length)
             if(!data[3])
                 g_Ready = true;
             g_Current = __builtin_bswap16(*(uint16_t *)&data[6]) / 30.0;
-            //Serial.printf("Output Realtime Current: %.2f A\n", g_Current); // debug realtime current values
             if(!eaddr.fromSrc)
                 g_CoulombCounter += g_Current * 0.377; // every 377ms
         } return;
 
         case HUAWEI_R48XX_MSG_DATA_ID: {
             uint16_t id = __builtin_bswap16(*(uint16_t *)&data[0]);
-            uint32_t val = __builtin_bswap32(*(uint32_t *)&data[4]); // __builtin_bswap32 reverses byte order
+            uint32_t val = __builtin_bswap32(*(uint32_t *)&data[4]);
             id &= ~0x3000;
 
             switch(id)
@@ -74,7 +52,6 @@ void onRecvCAN(uint32_t msgid, uint8_t *data, uint8_t length)
                 } return;
                 case 0x0175: {
                     g_PSU.output_voltage = val / 1024.0;
-                    //Serial.printf("Output Voltage: %.2f V\n", g_PSU.output_voltage);
                 } return;
                 case 0x0176: {
                     g_PSU.output_current_max = val / 30.0;
@@ -91,42 +68,53 @@ void onRecvCAN(uint32_t msgid, uint8_t *data, uint8_t length)
                 case 0x0181:
                 case 0x0182: {
                     g_PSU.output_current = val / 1024.0;
-                    //erial.printf("Output Current: %.2f A\n", g_PSU.output_current);
                 } return;
             }
         } return;
 
         case HUAWEI_R48XX_MSG_INFO_ID: {
             if(data[1] == 1)
-                Serial.println("--- HUAWEI R48XX INFO ---");
+                Main::channel()->println("--- HUAWEI R48XX INFO ---");
 
             switch(data[1]) {
                 case 1: {
                     uint32_t val = __builtin_bswap32(*(uint32_t *)&data[4]);
-                    uint16_t rated_current = ((val >> 16) & 0x03FF) >> 1; // probably correct for R4850G2 - not R4875G1
-                    printf("Rated Current: %u\n", rated_current); 
+                    uint16_t rated_current = ((val >> 16) & 0x03FF) >> 1;
+                    printf("Rated Current: %u\n", rated_current);
                 } return;
             }
         } break;
 
         case HUAWEI_R48XX_MSG_DESC_ID: {
             if(data[1] == 1)
-                Serial.println("--- HUAWEI R48XX DESCRIPTION ---");
+                Main::channel()->println("--- HUAWEI R48XX DESCRIPTION ---");
 
-            Serial.write(&data[2], 6);
+            Main::channel()->write(&data[2], 6);
 
             if(!eaddr.count)
-                Serial.println();
+                Main::channel()->println();
         } return;
     }
 
-
+    // Debug
+    for(int c = 0; c < Main::NUM_CHANNELS; c++)
+    {
+        if(Main::g_Debug[c])
+        {
+            Main::channel(c)->printf("%08X:", msgid);
+            for(uint8_t i = 0; i < length; i++)
+            {
+                Main::channel(c)->printf(" %02X", data[i]);
+            }
+            Main::channel(c)->println();
+        }
+    }
 }
 
 void every1000ms()
 {
     if(g_Ready)
-        sendGetData(0x01);
+        sendGetData();
 /*
     static uint8_t count10 = 0;
     if(count10 == 10)
@@ -145,12 +133,11 @@ void sendCAN(uint32_t msgid, uint8_t *data, uint8_t length, bool rtr)
     CAN.beginExtendedPacket(msgid, -1, rtr);
     CAN.write(data, length);
     CAN.endPacket();
-   // Serial.printf("can sent");
 }
 
-void setReg(uint8_t reg, uint16_t val, uint8_t addr = 0x00) // default address of 00 to send to all 
+void setReg(uint8_t reg, uint16_t val)
 {
-    HuaweiEAddr eaddr = {HUAWEI_R48XX_PROTOCOL_ID, addr, HUAWEI_R48XX_MSG_CONTROL_ID, 01, 0x3F, 0x00};
+    HuaweiEAddr eaddr = {HUAWEI_R48XX_PROTOCOL_ID, 0x00, HUAWEI_R48XX_MSG_CONTROL_ID, 0x01, 0x3F, 0x00};
     uint8_t data[8];
     data[0] = 0x01;
     data[1] = reg;
@@ -164,21 +151,7 @@ void setReg(uint8_t reg, uint16_t val, uint8_t addr = 0x00) // default address o
     sendCAN(eaddr.pack(), data, sizeof(data));
 }
 
-void setVoltage(float u,uint8_t addr, bool perm)
-{
-    // calibration, non-linearity measured on my own PSU
-   // u += (u - 49.0) / 110.0;
-
-    if(u < 40.0)
-        u = 40.0;
-    if(u > 60.0)
-        u = 60.0;
-
-    uint16_t hex = u * 1024.0;
-    setVoltageHex(hex, addr, perm);
-}
-
-void setVoltageHex(uint16_t hex, uint8_t addr, bool perm)
+void setVoltageHex(uint16_t hex, bool perm)
 {
     uint8_t reg = perm ? 0x01 : 0x00;
 
@@ -197,7 +170,34 @@ void setVoltageHex(uint16_t hex, uint8_t addr, bool perm)
     else
         g_UserVoltage = hex;
 
-    setReg(reg, hex, addr);
+    setReg(reg, hex);
+}
+
+void setVoltage(float u, bool perm)
+{
+    // calibration, non-linearity measured on my own PSU
+    u += (u - 49.0) / 110.0;
+
+    if(u < 40.0)
+        u = 40.0;
+    if(u > 60.0)
+        u = 60.0;
+
+    uint16_t hex = u * 1020.0;
+    setVoltageHex(hex, perm);
+}
+
+void setCurrentHex(uint16_t hex, bool perm)
+{
+    uint8_t reg = perm ? 0x04 : 0x03;
+
+    if(hex > 0x0499)
+        hex = 0x0499;
+
+    if(!perm)
+        g_UserCurrent = hex;
+
+    setReg(reg, hex);
 }
 
 void setCurrent(float i, bool perm)
@@ -207,22 +207,9 @@ void setCurrent(float i, bool perm)
     setCurrentHex(hex, perm);
 }
 
-void setCurrentHex(uint16_t hex, bool perm)
+void sendGetData()
 {
-    uint8_t reg = perm ? 0x04 : 0x03;
-
-    if(hex > 0x0499) // probably limits to 50A max?
-        hex = 0x0499;
-
-    if(!perm)
-        g_UserCurrent = hex;
-
-    setReg(reg, hex);
-}
-
-void sendGetData(uint8_t addr = 0x00)
-{
-    HuaweiEAddr eaddr = {HUAWEI_R48XX_PROTOCOL_ID, addr, HUAWEI_R48XX_MSG_DATA_ID, 0x01, 0x3F, 0x00};
+    HuaweiEAddr eaddr = {HUAWEI_R48XX_PROTOCOL_ID, 0x00, HUAWEI_R48XX_MSG_DATA_ID, 0x01, 0x3F, 0x00};
     uint8_t data[8] = {0x00};
     sendCAN(eaddr.pack(), data, sizeof(data));
 }

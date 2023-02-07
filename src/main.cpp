@@ -2,37 +2,24 @@
 ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-point-with-esp32
 
 
+Implementen dashboard: https://ayushsharma82.github.io/ESP-DASH/
 Open: Use of https://github.com/s00500/ESPUI
 
 Pinpout:
 
 Charger (CAN Bus)
-CAN RX:   GPIO4
-CAN TX:   GPIO5
+GPIO4:  CAN
+GPIO5:  CAN
 
 Inverter (RS485)
-TX:     GPIO18
-RX:     GPIO19
-EN:     GPIO23  (if needed by the transceiver)
+GPIO18: TX 
+GPIO19: RX
+GPIO4: EN (if needed by the transceiver)
 
 Display (I2C)
-SDA:   GPIO21
-SCK:   GPIO22
 
-BMS (RS485)???
-TX:  GPIO25
-RX:  GPIO26
-EN:  GPIO
 
-1-wire sensors
-Data:   GPIO23
-
-Digital switches:
-1
-2
-3
-4
-
+BMS (RS485)
 
 
 
@@ -41,73 +28,45 @@ Digital switches:
 // #define test_debug // uncomment to just test the power calculation part.
 // #define wifitest    // uncomment to debug wifi status
 
-// pins for Soyosource
-#define Soyo_RS485_PORT_TX 18 // GPIO18
-#define Soyo_RS485_PORT_RX 19 // GPIO19
-#define Soyo_RS485_PORT_EN 23 // GPIO23
-
-#define JKBMS_RS485_PORT_TX 25 // GPIO25
-#define JKBMS_RS485_PORT_RX 26 // GPIO26
-#define JKBMS_RS485_PORT_EN 33 // GPIO33    ???????
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <CAN.h>
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-#define WEBSERVER_H
-#include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
-// #define USE_LittleFS
-
-#if defined(ESP8266)
-/* ESP8266 Dependencies */
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
-#include <ESP8266mDNS.h>
-//  #include <FS.h>
-#include <LittleFS.h>
-FS *filesystem = &LittleFS;
-#define FileFS LittleFS
-#define FS_Name "LittleFS"
-
-#elif defined(ESP32)
-/* ESP32 Dependencies */
-#include <WiFi.h>
-#include <AsyncTCP.h>
-//  #include <SPIFFS.h>
-#include "FS.h"
-#include <LittleFS.h>
-FS *filesystem = &LittleFS;
-#define FileFS LittleFS
-#define FS_Name "LittleFS"
-#endif
-// Littfs error. Solution: update : pio pkg update -g -p espressif32
-
-#include <ESPUI.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <PubSubClient.h>
+
+#include <ESPAsyncWebServer.h>
+#include <ESPDash.h>
+
 #include "huawei.h"
 #include "commands.h"
 #include "main.h"
+
 #include "soyosource.h"
+
 #include "PowerFunctions.h"
 #include "jkbms.h"
 #include "secrets.h"
+=======
+#include "CalculatePower.h"
 
-TaskHandle_t TaskCan;
-int packetSize;
+
+#include "secrets.h"
 
 WiFiServer server(23);
-WiFiClient serverClient; // for OTA
+WiFiClient serverClient;         // for OTA
+WiFiClient current_clamp_client; // or WiFiClientSecure for HTTPS; to connect to current sensor
+HTTPClient http;                 // to connect to current sensor
 
 WiFiClient mqttclient; // to connect to MQTT broker
 PubSubClient PSclient(mqttclient);
 
-// You only need to format the filesystem once
-// #define FORMAT_FILESYSTEM       true
-#define FORMAT_FILESYSTEM false
+AsyncWebServer webserver(80); // for Dashoard
+ESPDash dashboard(&webserver);
 
-const char ESP_Hostname[] = "Battery_Control_ESP32"; // Battery_Control_ESP32
+const char ESP_Hostname[] = "Battery_Control_ESP32";
+
 
 namespace Main
 {
@@ -126,14 +85,26 @@ namespace Main
     float ActualSetCurrent = 0;
     int PowerReserveCharger = 15;
     int PowerReserveInv = 15;
-    int MaxPowerCharger = 2000;
-    int MaxPowerInv = 100;
     bool g_EnableCharge = true;
-    bool g_EnableMQTT = true;
 
-    unsigned long g_Time500 = 0;
+    /*
+      Dashboard Cards
+      Format - (Dashboard Instance, Card Type, Card Name, Card Symbol(optional) )
+    */
+    Card CardDeviceStatus(&dashboard, STATUS_CARD, "Device Status", "idle");
+    Card CardActualPower(&dashboard, GENERIC_CARD, "Home Grid Power", "W");
+    Card CardActualVoltage(&dashboard, GENERIC_CARD, "Battery Voltage", "V");
+    Card CardActualCurrent(&dashboard, GENERIC_CARD, "Charing Current", "A");
+    Card CardActualSetPower(&dashboard, GENERIC_CARD, "Actual Set Power", "W");
+    Card CardActualSetVoltage(&dashboard, GENERIC_CARD, "Actual Set Voltage", "V");
+    Card CardActualSetCurrent(&dashboard, GENERIC_CARD, "Actual Set Current", "A");
+    Card TargetPowerReserveCharger(&dashboard, SLIDER_CARD, "Power Reserve", "W", 0, 100);
+    Card CardSetVoltage(&dashboard, SLIDER_CARD, "Charge Voltage", "V", 54.4, 57.6);
+    Card CardEnableCharge(&dashboard, BUTTON_CARD, "Enable charing");
+
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
+
 
     char temp_char[10]; // for temporary storage of strings values
     char *pointer_to_temp_char;
@@ -168,6 +139,8 @@ namespace Main
     // basic information. Event types are defined in ESPUI.h
     void generalCallback(Control *sender, int type);
 
+
+
     void onCANReceive(int packetSize)
     {
         if (!CAN.packetExtended())
@@ -181,29 +154,6 @@ namespace Main
         CAN.readBytes(data, sizeof(data));
 
         Huawei::onRecvCAN(msgid, data, packetSize);
-    }
-
-    void CoreTask1(void *parameter)
-    {
-        for (;;)
-        {
-            int packetSize = CAN.parsePacket();
-            if (packetSize)
-                onCANReceive(packetSize);
-
-            ArduinoOTA.handle();
-            if (server.hasClient())
-            {
-                if (serverClient) // disconnect current client if any
-                    serverClient.stop();
-                serverClient = server.available();
-            }
-            if (!serverClient)
-                serverClient.stop();
-            if (g_EnableMQTT)
-                PSclient.loop();
-            delay(200);
-        }
     }
 
     // (re)connect to MQTT broker
@@ -268,6 +218,8 @@ namespace Main
                 //  Serial.println("off");
                 g_EnableCharge = false;
             }
+            CardEnableCharge.update(g_EnableCharge);
+            dashboard.sendUpdates();
         }
     }
 
@@ -431,38 +383,33 @@ namespace Main
             ;
         Serial.println("BOOTED!");
 
-        ESPUI.setVerbosity(Verbosity::Quiet);
-        // to prepare the filesystem
-        // ESPUI.prepareFileSystem();
+        // PSU enable pin
+        // pinMode(POWER_EN_GPIO, OUTPUT_OPEN_DRAIN);
+        // digitalWrite(POWER_EN_GPIO, 0); // Default = ON
 
-        // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
-        WiFiManager wm;
-        wm.setWiFiAutoReconnect(true);
-
-        // reset settings - wipe stored credentials for testing
-        // these are stored by the esp library
-        // wm.resetSettings();
-
-        // Automatically connect using saved credentials,
-        // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
-        // if empty will auto generate SSID, if password is blank it will be anonymous AP (wm.autoConnect())
-        // then goes into a blocking loop awaiting configuration and will return success result
-
-        bool res;
-        // res = wm.autoConnect(); // auto generated AP name from chipid
-        // res = wm.autoConnect("AutoConnectAP"); // anonymous ap
-        res = wm.autoConnect("AutoConnectAP", "password"); // password protected ap
-
-        if (!res)
+        WiFi.setHostname(ESP_Hostname);
+        WiFi.begin(g_WIFI_SSID, g_WIFI_Passphrase);
+        while (WiFi.status() != WL_CONNECTED)
         {
-            Serial.println("Failed to connect");
-            // ESP.restart();
+            delay(500);
+            Serial.print(".");
         }
-        else
-        {
-            // if you get here you have connected to the WiFi
-            Serial.println("WiFi connected... :)");
-        }
+        WiFi.setAutoReconnect(true);
+        WiFi.persistent(true);
+
+        Serial.print("[*] Network information for ");
+        Serial.println(ssid);
+
+        Serial.println("[+] BSSID : " + WiFi.BSSIDstr());
+        Serial.print("[+] Gateway IP : ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("[+] Subnet Mask : ");
+        Serial.println(WiFi.subnetMask());
+        Serial.println((String)"[+] RSSI : " + WiFi.RSSI() + " dB");
+        Serial.print("[+] ESP32 IP : ");
+        Serial.println(WiFi.localIP());
+        Serial.print("[+] ESP32 hostnape : ");
+        Serial.println(WiFi.getHostname());
 
         ArduinoOTA.onStart([]()
                            {
@@ -499,21 +446,12 @@ namespace Main
                 ;
         }
         Serial.println("CAN setup done");
-        CAN.filterExtended(0x1081407F, 0x1081FFFF);
 
-        xTaskCreatePinnedToCore(
-            CoreTask1, /* Task function. */
-            "TaskCan", /* name of task. */
-            30000,     /* Stack size of task */
-            NULL,      /* parameter of the task */
-            1,         /* priority of the task */
-            &TaskCan,  /* Task handle to keep track of created task */
-            1);        /* pin task to core 1 */
-
-        // crashes when calling some functions inside interrupt
-        //  CAN.onReceive(onCANReceive);
+// crashes when calling some functions inside interrupt
+// CAN.onReceive(onCANReceive);
 
         Huawei::setCurrent(0, true); // set 0 A as default
+
         Soyosource_init_RS485(Soyo_RS485_PORT_RX, Soyo_RS485_PORT_TX, Soyo_RS485_PORT_EN);
         Serial.println("Soyosource inverter RS485 setup done");
 
@@ -532,6 +470,51 @@ namespace Main
 
         // start ESPUI
         ESPUI.begin("Battery Management");
+
+
+
+        init_RS485();
+        Serial.println("RS485 setup done");
+
+        /*PSclient.setServer(mqtt_server, atoi(mqtt_port));
+        PSclient.setCallback(callback);
+        reconnect();
+        */
+
+        TargetPowerReserveCharger.attachCallback([&](int value) { /* Attach Slider Callback */
+                                                                  /* Make sure we update our slider's value and send update to dashboard */
+                                                                  TargetPowerReserveCharger.update(value);
+                                                                  dashboard.sendUpdates();
+                                                                  PowerReserveCharger = value;
+        });
+
+        /*
+        We provide our attachCallback with a lambda function to handle incomming data
+        `value` is the boolean sent from your dashboard
+        */
+        CardEnableCharge.update(g_EnableCharge);
+        CardEnableCharge.attachCallback([&](bool value)
+                                        {
+        //Serial.println("[CardEnableCharge] Button Callback Triggered: "+String((value)?"true":"false"));
+        g_EnableCharge = value;
+        CardEnableCharge.update(value);
+        dashboard.sendUpdates(); });
+
+        CardSetVoltage.attachCallback([&](int value) { /* Attach Slider Callback */
+                                                       /* Make sure we update our slider's value and send update to dashboard */
+                                                       CardSetVoltage.update(value);
+                                                       dashboard.sendUpdates();
+                                                       ActualSetVoltage = value;
+        });
+
+        webserver.begin(); // start Asynchron Webserver
+
+        // update dashboard
+        TargetPowerReserveCharger.update(PowerReserveCharger);
+        CardSetVoltage.update(ActualSetVoltage);
+        CardDeviceStatus.update("Running", "success");
+        dashboard.sendUpdates();
+
         Serial.println("Init done");
     }
 
@@ -546,29 +529,49 @@ namespace Main
         return &Serial;
     }
 
+#ifdef test_debug
+    int increm = 1, count = 70;
+    int ActualSetPower_old = 0;
+#endif
+
     void loop()
     {
+
         // CAN handling and OTA shifted to core 1
 
         if ((millis() - g_Time500) > 500)
         {
 
-            g_Time500 = millis();
+
+        ArduinoOTA.handle();
+        if (server.hasClient())
+        {
+            if (serverClient) // disconnect current client if any
+                serverClient.stop();
+            serverClient = server.available();
         }
+        if (!serverClient)
+            serverClient.stop();
+
 
         if ((millis() - g_Time1000) > 1000)
         {
+            #ifndef test_debug
+
             Huawei::every1000ms();
-            // PSclient.loop();
+            
+            PSclient.loop();
+            #endif
 
             // update the value for the inverter every second
-            sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
-
+            sendpowertosoyo(ActualSetPowerInv);
             g_Time1000 = millis();
         }
 
+
         if ((millis() - g_Time5000) > 5000)
         {
+
             Huawei::sendGetData(0x00);
   //          Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
@@ -584,8 +587,52 @@ namespace Main
             ActualCurrent = Huawei::g_PSU.output_current;
 //            ActualCurrent = info.output_current;
 
+
+            Huawei::HuaweiInfo &info = Huawei::g_PSU;
+
+            // reads actual power every 5 seconds
+            ActualPower = getActualPower();
+            ActualVoltage = info.output_voltage;
+            ActualCurrent = info.output_current;
+
+
+
+            ActualPower = getActualPower(); //-ActualSetPower;
+            //ActualPower = increm * random(20) + ActualPower - ActualSetPower + ActualSetPower_old; // for simulation with random values
+            // ActualPower+= 10*increm;
+            ActualSetPower_old = ActualSetPower;
+            if (count == 100)
+            {
+                increm = 0 - increm;
+                count = 0;
+            }
+            count++;
+
+
+
+            switch (WiFi.status())
+            {
+            case WL_NO_SSID_AVAIL:
+                Serial.println("Configured SSID cannot be reached");
+                break;
+            case WL_CONNECTED:
+                Serial.println("Connection successfully established");
+                break;
+            case WL_CONNECT_FAILED:
+                Serial.println("Connection failed");
+                break;
+            }
+            Serial.printf("Connection status: %d\n", WiFi.status());
+            Serial.print("RRSI: ");
+            Serial.println(WiFi.RSSI());
+
+#endif
+
+#endif
+
+
             // calculate desired power
-            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
+            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, 1000, PowerReserveInv, 600);
 
             // decide, whether the charger or inverter shall be activated
 
@@ -600,19 +647,26 @@ namespace Main
                 ActualSetPowerInv = 0;
             }
 
+#ifndef test_debug
             if (g_EnableCharge)
             {
+                CardDeviceStatus.update("Charging", "success");
             }
             else if (!g_EnableCharge)
             {
                 ActualSetPowerCharger = 0;
+                CardDeviceStatus.update("Output disabled", "idle");
             }
+#endif
 
-            // send commands to the charger and inverter
-            sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
-            Huawei::setVoltage(ActualSetVoltage, 0x00, false);
+// send commands to the charger and inverter
+            sendpowertosoyo(ActualSetPowerInv);
+#ifndef test_debug
+
+            Huawei::setVoltage(ActualSetVoltage, false);
             ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
+
             //Huawei::setCurrent(2.0, false);
 
             GUI_update();
@@ -678,6 +732,44 @@ namespace Main
                     sprintf(mqtt_topic, "%s/Data/Cell_08", ESP_Hostname);
                     PSclient.publish(mqtt_topic, dtostrf(BMS.cellVoltage[8], 6, 3, temp_char));
 
+#endif
+
+#ifdef test_debug
+            Serial.print(count);
+            Serial.print("   ");
+#endif
+
+            Serial.print(ActualPower);
+            Serial.print("   ");
+            Serial.print(ActualSetPower);
+            Serial.print("   ");
+            Serial.print(ActualSetPowerInv);
+            Serial.print("   ");
+            Serial.print(ActualSetPowerCharger);
+/*
+#ifndef test_debug
+            Serial.print("   ");
+            Serial.print(ActualSetVoltage);
+            Serial.print("   ");
+            Serial.print(ActualSetCurrent);
+#endif
+*/
+            Serial.println();
+            // char temp[60];
+            // dtostrf(ActualSetCurrent,2,2,temp);
+            // sprintf(temp, "{ \"idx\" : 326, \"nvalue\" : 0, \"svalue\" : \"%.2f\" }", ActualSetCurrent);
+            // PSclient.publish("domoticz/in", temp);
+            // PSclient.loop();
+            CardActualPower.update(ActualPower);
+            CardActualVoltage.update(ActualVoltage);
+            CardActualCurrent.update(ActualCurrent);
+            CardActualSetPower.update(ActualSetPower);
+            CardActualSetVoltage.update(ActualSetVoltage);
+            CardActualSetCurrent.update(ActualSetCurrent);
+            CardEnableCharge.update(g_EnableCharge);
+            dashboard.sendUpdates();
+
+
                     sprintf(mqtt_topic, "%s/Data/Cell_09", ESP_Hostname);
                     PSclient.publish(mqtt_topic, dtostrf(BMS.cellVoltage[9], 6, 3, temp_char));
 
@@ -709,6 +801,7 @@ namespace Main
             g_Time5000 = millis();
         }
     }
+
 
     // Most UI elements are assigned this generic callback which prints some
     // basic information. Event types are defined in ESPUI.h
@@ -805,6 +898,8 @@ namespace Main
     }
 
     //////////////////////////////////////////////////////
+
+
 
 }
 
