@@ -109,7 +109,6 @@ PubSubClient PSclient(mqttclient);
 
 const char ESP_Hostname[] = "Battery_Control_ESP32"; // Battery_Control_ESP32
 
-
 namespace Main
 {
 
@@ -164,6 +163,8 @@ namespace Main
     uint16_t guiCapacity, guiSysWorkingTime, guiTotCapacity, guiChargeCurrent, guiLog;
     uint16_t guiSOC, guiBattVoltage, guiBattStatus, guiCellDelta, guiAvgCellVoltage, guiCellCount;
     uint16_t guiMOST, guiT1, guiT2;
+    uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger;
+    bool g_enableManualControl;
 
     // Most UI elements are assigned this generic callback which prints some
     // basic information. Event types are defined in ESPUI.h
@@ -348,6 +349,11 @@ namespace Main
         ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerCharger);
         ESPUI.addControl(Max, "", "4000", None, gui_SetMaxPowerCharger);
 
+        gui_enableManControl = ESPUI.addControl(ControlType::Switcher, "Enable manual control", "", ControlColor::Alizarin, TabSettings, generalCallback);
+        gui_ManualSetPower = ESPUI.addControl(Slider, "Set charging power manually", "0", Alizarin, TabSettings, generalCallback);
+        ESPUI.addControl(Min, "", "0", None, gui_ManualSetPower);
+        ESPUI.addControl(Max, "", "4000", None, gui_ManualSetPower);
+
         ESPUI.addControl(ControlType::Separator, "Network settings", "", ControlColor::None, TabSettings);
         gui_setMQTTIP = ESPUI.addControl(Text, "MQTT Server:", mqtt_server, Alizarin, TabSettings, generalCallback);
         gui_setMQTTport = ESPUI.addControl(Text, "MQTT port:", mqtt_port, Alizarin, TabSettings, generalCallback);
@@ -356,6 +362,7 @@ namespace Main
 
         // disable editing on settings page
         ESPUI.updateSwitcher(gui_enableChange, false);
+        ESPUI.updateSwitcher(gui_enableManControl, false);
         ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
         ESPUI.setEnabled(gui_setMQTTIP, false);
         ESPUI.setEnabled(gui_setMQTTport, false);
@@ -363,6 +370,8 @@ namespace Main
         ESPUI.setEnabled(gui_SetMaxPowerInv, false);
         ESPUI.setEnabled(gui_testMQTT, false);
         ESPUI.setEnabled(gui_enableMQTT, false);
+        ESPUI.setEnabled(gui_enableManControl, false);
+        ESPUI.setEnabled(gui_ManualSetPower, false);
     }
 
     // update ESPUI
@@ -568,7 +577,7 @@ namespace Main
         if ((millis() - g_Time5000) > 5000)
         {
             Huawei::sendGetData(0x00);
-  //          Huawei::HuaweiInfo &info = Huawei::g_PSU;
+            //          Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
             // get the BMS data
             receivedRawData = JKBMS_read_data(JKBMS_RS485_PORT_EN);
@@ -578,10 +587,9 @@ namespace Main
             // reads actual grid power every 5 seconds
             ActualPower = getActualPower(current_clamp_ip, current_clamp_cmd, sensor_resp, sensor_resp_power);
             ActualVoltage = Huawei::g_PSU.output_voltage;
-//            ActualVoltage = info.output_voltage;
+            //            ActualVoltage = info.output_voltage;
             ActualCurrent = Huawei::g_PSU.output_current;
-//            ActualCurrent = info.output_current;
-
+            //            ActualCurrent = info.output_current;
 
             // calculate desired power
             ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
@@ -610,8 +618,16 @@ namespace Main
             // send commands to the charger and inverter
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
             Huawei::setVoltage(ActualSetVoltage, 0x00, false);
-            ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
-            Huawei::setCurrent(ActualSetCurrent, false);
+            if (!g_enableManualControl)
+            {
+                ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
+                Huawei::setCurrent(ActualSetCurrent, false);
+            }
+            else if (g_enableManualControl)
+            {
+                ActualSetCurrent = g_ManualSetPowerCharger / ActualSetVoltage;
+                Huawei::setCurrent(ActualSetCurrent, false);
+            }
 
             GUI_update();
 
@@ -715,6 +731,21 @@ namespace Main
         {
             MaxPowerInv = (sender->value).toInt();
         }
+        if (sender->id == gui_ManualSetPower)
+        {
+            g_ManualSetPowerCharger = (sender->value).toInt();
+        }
+        if (sender->id == gui_enableManControl)
+        {
+            if (type == S_ACTIVE)
+            {
+                g_enableManualControl = true;
+            }
+            if (type == S_INACTIVE)
+            {
+                g_enableManualControl = false;
+            }
+        }
         if (sender->id == gui_SetMaxPowerCharger)
         {
             MaxPowerCharger = (sender->value).toInt();
@@ -771,6 +802,8 @@ namespace Main
                 ESPUI.setEnabled(gui_SetMaxPowerInv, true);
                 ESPUI.setEnabled(gui_testMQTT, true);
                 ESPUI.setEnabled(gui_enableMQTT, true);
+                ESPUI.setEnabled(gui_enableManControl, true);
+                ESPUI.setEnabled(gui_ManualSetPower, true);
             }
             if (type == S_INACTIVE)
             {
@@ -780,6 +813,8 @@ namespace Main
                 ESPUI.setEnabled(gui_SetMaxPowerInv, false);
                 ESPUI.setEnabled(gui_testMQTT, false);
                 ESPUI.setEnabled(gui_enableMQTT, false);
+                ESPUI.setEnabled(gui_enableManControl, false);
+                ESPUI.setEnabled(gui_ManualSetPower, false);
             }
         }
         /*
