@@ -109,6 +109,7 @@ PubSubClient PSclient(mqttclient);
 
 const char ESP_Hostname[] = "Battery_Control_ESP32"; // Battery_Control_ESP32
 
+
 namespace Main
 {
 
@@ -580,6 +581,7 @@ namespace Main
 //            ActualVoltage = info.output_voltage;
             ActualCurrent = Huawei::g_PSU.output_current;
 //            ActualCurrent = info.output_current;
+
 
             // calculate desired power
             ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
