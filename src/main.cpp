@@ -151,7 +151,7 @@ namespace Main
     char sensor_resp[20] = "SML";               // or "MT175"
     char sensor_resp_power[20] = "DJ_TPWRCURR"; // or "P"
 
-    uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv;
+    uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv, gui_SetVoltageCharger;
     uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv;
     uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange;
     uint16_t gui_GridPower, gui_ChargerVoltage, gui_ChargerCurrent, gui_ChargerPower;
@@ -346,6 +346,9 @@ namespace Main
         gui_SetMaxPowerCharger = ESPUI.addControl(Slider, "Max Power Charger", "2000", Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerCharger);
         ESPUI.addControl(Max, "", "4000", None, gui_SetMaxPowerCharger);
+        gui_SetVoltageCharger = ESPUI.addControl(Slider, "Charging voltage", "56.2", Alizarin, TabSettings, generalCallback);
+        ESPUI.addControl(Min, "", "42", None, gui_SetVoltageCharger);
+        ESPUI.addControl(Max, "", "58", None, gui_SetVoltageCharger);        
 
         ESPUI.addControl(ControlType::Separator, "Network settings", "", ControlColor::None, TabSettings);
         gui_setMQTTIP = ESPUI.addControl(Text, "MQTT Server:", mqtt_server, Alizarin, TabSettings, generalCallback);
@@ -610,11 +613,13 @@ namespace Main
             Huawei::setVoltage(ActualSetVoltage, 0x00, false);
             ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
             Huawei::setCurrent(ActualSetCurrent, false);
+            //Huawei::setCurrent(2.0, false);
 
             GUI_update();
 
             if (g_EnableMQTT)
             {
+                if (!PSclient.connected()) reconnect();
                 if (PSclient.connected()) // only send data, if the server is connected
                 {
                     sprintf(temp_char, "%d", BMS.SOC);
@@ -716,7 +721,12 @@ namespace Main
         if (sender->id == gui_SetMaxPowerCharger)
         {
             MaxPowerCharger = (sender->value).toInt();
+        }   
+        if (sender->id == gui_SetVoltageCharger)
+        {
+            ActualSetVoltage = (sender->value).toFloat();
         }
+
         if (sender->id == gui_setMQTTIP)
         {
             (sender->value).toCharArray(mqtt_server, ((sender->value).length() + 1));
