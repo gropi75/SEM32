@@ -434,6 +434,7 @@ JK_BMS_Data JKBMS_DataAnalysis2(byte *data2decode, int d2dlength)
       break;
     }
   }
+  Decoded.Battery_Power = Decoded.Battery_Voltage*Decoded.Charge_Current;
   return Decoded;
 }
 
@@ -824,6 +825,7 @@ JK_BMS_Data JKBMS_DataAnalysis(JK_BMS_RS485_Data data2decode)
       break;
     }
   }
+  Decoded.Battery_Power = Decoded.Battery_Voltage*Decoded.Charge_Current;
   return Decoded;
 }
 
