@@ -374,3 +374,5 @@ src/main.cpp
 .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Variant/Visitor.hpp
 .pio/libdeps/esp32dev/ArduinoJson/.prettierignore
 .pio/libdeps/esp32dev/ArduinoJson/logo.svg
+.pio/libdeps/esp32dev/ArduinoJson/idf_component.yml
+.pio/libdeps/esp32dev/ArduinoJson/LICENSE.txt

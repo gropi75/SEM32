@@ -47,7 +47,7 @@ JK_BMS_RS485_Data JKBMS_read_data(uint8_t en_pin)
 }
 
 // Interprets the data from the JK-BMS; returns a structure as defined in jkbms.h
-JK_BMS_Data JKBMS_DataAnalysis(byte *data2decode, int d2dlength)
+JK_BMS_Data JKBMS_DataAnalysis2(byte *data2decode, int d2dlength)
 
 {
   float min = 4, max = 0; // to store the min an max cell voltage
@@ -438,7 +438,7 @@ JK_BMS_Data JKBMS_DataAnalysis(byte *data2decode, int d2dlength)
 }
 
 // interpret/decode the data from the JK-BMS
-JK_BMS_Data JKBMS_DataAnalysis2(JK_BMS_RS485_Data data2decode)
+JK_BMS_Data JKBMS_DataAnalysis(JK_BMS_RS485_Data data2decode)
 {
   float min = 4, max = 0; // to store the min an max cell voltage
   uint16_t temp;
