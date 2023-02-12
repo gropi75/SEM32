@@ -38,7 +38,7 @@ Digital switches:
 
 */
 
-// #define test_debug // uncomment to just test without equipment
+//#define test_debug // uncomment to just test without equipment
 //  #define wifitest    // uncomment to debug wifi status
 
 // pins for Soyosource
@@ -147,6 +147,7 @@ namespace Main
     uint16_t guiMOST, guiT1, guiT2;
     uint16_t gui_resetsettings, gui_resetESP;
     uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger;
+    uint16_t gui_SetPowerReserveCharger, gui_SetPowerReserveInverter, gui_BatPower;
     bool g_enableManualControl;
     bool wm_resetsetting = false;
 
@@ -274,40 +275,38 @@ namespace Main
         uint16_t TabBatteryInfo = ESPUI.addControl(ControlType::Tab, "Info", "Info");
         uint16_t TabSettings = ESPUI.addControl(ControlType::Tab, "Settings", "Settings");
 
-        ESPUI.addControl(ControlType::Separator, "Global", "", ControlColor::None, TabStatus);
-        guiBattStatus = ESPUI.addControl(ControlType::Label, "Battery status", "0", ControlColor::Emerald, TabStatus);
+        //        ESPUI.addControl(ControlType::Separator, "Global", "", ControlColor::None, TabStatus);
         guiSOC = ESPUI.addControl(ControlType::Label, "SOC [%]", "0", ControlColor::Emerald, TabStatus);
-        gui_ActualSetPower = ESPUI.addControl(ControlType::Label, "Actual Set Power [W]", "0", ControlColor::Emerald, TabStatus);
         gui_GridPower = ESPUI.addControl(ControlType::Label, "Actual Grid Power [W]", "0", ControlColor::Emerald, TabStatus);
-
-        ESPUI.addControl(ControlType::Separator, "Charger", "", ControlColor::None, TabStatus);
-        gui_ActualSetPowerCharger = ESPUI.addControl(ControlType::Label, "Set Power Charger [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerPower = ESPUI.addControl(ControlType::Label, "DC Power [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerVoltage = ESPUI.addControl(ControlType::Label, "DC Voltage [V]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerCurrent = ESPUI.addControl(ControlType::Label, "DC Current [A]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerACPower = ESPUI.addControl(ControlType::Label, "AC Power [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerACVoltage = ESPUI.addControl(ControlType::Label, "AC Voltage [V]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerACCurrent = ESPUI.addControl(ControlType::Label, "AC Current [A]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerACfreq = ESPUI.addControl(ControlType::Label, "AC frequency [Hz]", "0", ControlColor::Emerald, TabStatus);
-
-        ESPUI.addControl(ControlType::Separator, "Inverter", "", ControlColor::None, TabStatus);
-        gui_ActualSetPowerInv = ESPUI.addControl(ControlType::Label, "Actual Power Inverter [W]", "0", ControlColor::Emerald, TabStatus);
-
-        ESPUI.addControl(ControlType::Separator, "BMS", "", ControlColor::None, TabStatus);
-        guiBattVoltage = ESPUI.addControl(ControlType::Label, "Battery Voltage [V]", "0", ControlColor::Emerald, TabStatus);
-        guiChargeCurrent = ESPUI.addControl(ControlType::Label, "Current [A]", "0", ControlColor::Emerald, TabStatus);
-        guiAvgCellVoltage = ESPUI.addControl(ControlType::Label, "Avg.Cell Voltage [V]", "0", ControlColor::Emerald, TabStatus);
-        guiCellDelta = ESPUI.addControl(ControlType::Label, "Cell delta [V]", "0", ControlColor::Emerald, TabStatus);
-        guiMOST = ESPUI.addControl(ControlType::Label, "MOS Temperature [°C]", "0", ControlColor::Emerald, TabStatus);
-        guiT1 = ESPUI.addControl(ControlType::Label, "T1 [°C]", "0", ControlColor::Emerald, TabStatus);
-        guiT2 = ESPUI.addControl(ControlType::Label, "T2 [°C]", "0", ControlColor::Emerald, TabStatus);
+        gui_ChargerACPower = ESPUI.addControl(ControlType::Label, "Charger Power [W]", "0", ControlColor::Emerald, TabStatus);
+        gui_ActualSetPowerInv = ESPUI.addControl(ControlType::Label, "Inverter Power [W]", "0", ControlColor::Emerald, TabStatus);
+        gui_BatPower = ESPUI.addControl(ControlType::Label, "Battery Power [W]", "0", ControlColor::Emerald, TabStatus);
 
         // Battery Info Tab
         ESPUI.addControl(ControlType::Separator, "Battery Infos", "", ControlColor::None, TabBatteryInfo);
+        guiBattStatus = ESPUI.addControl(ControlType::Label, "Battery status", "0", ControlColor::Emerald, TabBatteryInfo);
         guiCapacity = ESPUI.addControl(ControlType::Label, "Nominal capacity [Ah]", "0", ControlColor::Emerald, TabBatteryInfo);
         guiCellCount = ESPUI.addControl(ControlType::Label, "Cell count", "0", ControlColor::Emerald, TabBatteryInfo);
         guiSysWorkingTime = ESPUI.addControl(ControlType::Label, "Working time", "0", ControlColor::Emerald, TabBatteryInfo);
         guiTotCapacity = ESPUI.addControl(ControlType::Label, "Cycle Capacity", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiBattVoltage = ESPUI.addControl(ControlType::Label, "Battery Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiChargeCurrent = ESPUI.addControl(ControlType::Label, "Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiAvgCellVoltage = ESPUI.addControl(ControlType::Label, "Avg.Cell Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiCellDelta = ESPUI.addControl(ControlType::Label, "Cell delta [V]", "0", ControlColor::Emerald, TabBatteryInfo);
+
+        ESPUI.addControl(ControlType::Separator, "BMS", "", ControlColor::None, TabBatteryInfo);
+        guiMOST = ESPUI.addControl(ControlType::Label, "MOS Temperature [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiT1 = ESPUI.addControl(ControlType::Label, "T1 [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
+        guiT2 = ESPUI.addControl(ControlType::Label, "T2 [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
+
+        ESPUI.addControl(ControlType::Separator, "Charger", "", ControlColor::None, TabBatteryInfo);
+        gui_ActualSetPowerCharger = ESPUI.addControl(ControlType::Label, "Set Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerPower = ESPUI.addControl(ControlType::Label, "DC Power [W]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerVoltage = ESPUI.addControl(ControlType::Label, "DC Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerCurrent = ESPUI.addControl(ControlType::Label, "DC Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerACVoltage = ESPUI.addControl(ControlType::Label, "AC Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerACCurrent = ESPUI.addControl(ControlType::Label, "AC Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_ChargerACfreq = ESPUI.addControl(ControlType::Label, "AC frequency [Hz]", "0", ControlColor::Emerald, TabBatteryInfo);
 
         ESPUI.addControl(ControlType::Separator, "Cell Voltages [V]", "", ControlColor::None, TabBatteryInfo);
         guiVoltageCell0 = ESPUI.addControl(ControlType::Label, "Cell 0", "0", ControlColor::Emerald, TabBatteryInfo);
@@ -327,6 +326,9 @@ namespace Main
         guiVoltageCell14 = ESPUI.addControl(ControlType::Label, "Cell 14", "0", ControlColor::Emerald, TabBatteryInfo);
         guiVoltageCell15 = ESPUI.addControl(ControlType::Label, "Cell 15", "0", ControlColor::Emerald, TabBatteryInfo);
 
+        ESPUI.addControl(ControlType::Separator, "Control values", "", ControlColor::None, TabBatteryInfo);
+        gui_ActualSetPower = ESPUI.addControl(ControlType::Label, "Actual Set Power [W]", "0", ControlColor::Emerald, TabBatteryInfo);
+
         ESPUI.addControl(ControlType::Separator, "(Dis-)Charge Settings", "", ControlColor::None, TabBatteryInfo);
         gui_MaxPowerCharger = ESPUI.addControl(ControlType::Label, "Max Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_MaxPowerInv = ESPUI.addControl(ControlType::Label, "Max Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
@@ -343,6 +345,12 @@ namespace Main
         gui_SetMaxPowerCharger = ESPUI.addControl(Slider, "Max Power Charger", String(MaxPowerCharger), Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerCharger);
         ESPUI.addControl(Max, "", "4000", None, gui_SetMaxPowerCharger);
+        gui_SetPowerReserveCharger = ESPUI.addControl(Slider, "Power Reserve Inverter", String(PowerReserveInv), Alizarin, TabSettings, generalCallback);
+        ESPUI.addControl(Min, "", "0", None, gui_SetPowerReserveCharger);
+        ESPUI.addControl(Max, "", "50", None, gui_SetPowerReserveCharger);
+        gui_SetPowerReserveInverter = ESPUI.addControl(Slider, "Power Reserve Charger", String(PowerReserveCharger), Alizarin, TabSettings, generalCallback);
+        ESPUI.addControl(Min, "", "0", None, gui_SetPowerReserveInverter);
+        ESPUI.addControl(Max, "", "50", None, gui_SetPowerReserveInverter);
 
         gui_enableManControl = ESPUI.addControl(ControlType::Switcher, "Enable manual control", "", ControlColor::Alizarin, TabSettings, generalCallback);
         gui_ManualSetPower = ESPUI.addControl(Slider, "Set charging power manually", "0", Alizarin, TabSettings, generalCallback);
@@ -372,6 +380,8 @@ namespace Main
         ESPUI.setEnabled(gui_ManualSetPower, false);
         ESPUI.setEnabled(gui_resetESP, false);
         ESPUI.setEnabled(gui_resetsettings, false);
+        ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
+        ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
     }
 
     // update ESPUI
@@ -392,6 +402,8 @@ namespace Main
         ESPUI.updateLabel(gui_ChargerACCurrent, String(Huawei::g_PSU.input_current) + "A");
         ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
         ESPUI.updateLabel(gui_ChargerACfreq, String(Huawei::g_PSU.input_freq) + "Hz");
+        ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
+
 
         // update the BMS values also only every 5 sec
 
@@ -421,6 +433,7 @@ namespace Main
         ESPUI.updateLabel(guiMOST, String(BMS.MOS_Temp, 0) + "°C");
         ESPUI.updateLabel(guiT1, String(BMS.Battery_T1, 0) + "°C");
         ESPUI.updateLabel(guiT2, String(BMS.Battery_T2, 0) + "°C");
+        ESPUI.updateLabel(gui_BatPower, String(BMS.Battery_Power, 0) + "W");
 
         ESPUI.updateLabel(guiCapacity, String(BMS.Nominal_Capacity) + "Ah");
         ESPUI.updateLabel(guiSysWorkingTime, String(BMS.days) + " days " + String(BMS.hr) + ":" + String(BMS.mi));
@@ -959,6 +972,14 @@ namespace Main
                 }
             }
         }
+        if (sender->id == gui_SetPowerReserveCharger)
+        {
+            PowerReserveCharger = (sender->value).toInt();
+        }
+        if (sender->id == gui_SetPowerReserveInverter)
+        {
+            PowerReserveInv = (sender->value).toInt();
+        }
         if (sender->id == gui_savesettings)
         {
             if (type == B_DOWN)
@@ -996,6 +1017,8 @@ namespace Main
                 ESPUI.setEnabled(gui_ManualSetPower, true);
                 ESPUI.setEnabled(gui_resetESP, true);
                 ESPUI.setEnabled(gui_resetsettings, true);
+                ESPUI.setEnabled(gui_SetPowerReserveCharger, true);
+                ESPUI.setEnabled(gui_SetPowerReserveInverter, true);
             }
             if (type == S_INACTIVE)
             {
@@ -1010,6 +1033,8 @@ namespace Main
                 ESPUI.setEnabled(gui_ManualSetPower, false);
                 ESPUI.setEnabled(gui_resetESP, false);
                 ESPUI.setEnabled(gui_resetsettings, false);
+                ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
+                ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
             }
         }
     }
