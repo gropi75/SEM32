@@ -38,8 +38,8 @@ Digital switches:
 
 */
 
-// #define test_debug // uncomment to just test the power calculation part.
-// #define wifitest    // uncomment to debug wifi status
+// #define test_debug // uncomment to just test without equipment
+//  #define wifitest    // uncomment to debug wifi status
 
 // pins for Soyosource
 #define Soyo_RS485_PORT_TX 18 // GPIO18
@@ -50,6 +50,8 @@ Digital switches:
 #define JKBMS_RS485_PORT_RX 26 // GPIO26
 #define JKBMS_RS485_PORT_EN 33 // GPIO33    ???????
 
+#define FORMAT_LITTLEFS_IF_FAILED true
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
@@ -57,31 +59,15 @@ Digital switches:
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #define WEBSERVER_H
 #include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
-// #define USE_LittleFS
 
-#if defined(ESP8266)
-/* ESP8266 Dependencies */
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
-#include <ESP8266mDNS.h>
-//  #include <FS.h>
-#include <LittleFS.h>
-FS *filesystem = &LittleFS;
-#define FileFS LittleFS
-#define FS_Name "LittleFS"
-
-#elif defined(ESP32)
 /* ESP32 Dependencies */
-#include <WiFi.h>
 #include <AsyncTCP.h>
-//  #include <SPIFFS.h>
 #include "FS.h"
 #include <LittleFS.h>
 FS *filesystem = &LittleFS;
 #define FileFS LittleFS
 #define FS_Name "LittleFS"
-#endif
+
 // Littfs error. Solution: update : pio pkg update -g -p espressif32
 
 #include <ESPUI.h>
@@ -107,7 +93,11 @@ PubSubClient PSclient(mqttclient);
 // #define FORMAT_FILESYSTEM       true
 #define FORMAT_FILESYSTEM false
 
+#ifdef test_debug
+const char ESP_Hostname[] = "Battery_Control_ESP32_TEST"; // Battery_Control_ESP32
+#else
 const char ESP_Hostname[] = "Battery_Control_ESP32"; // Battery_Control_ESP32
+#endif
 
 namespace Main
 {
@@ -129,15 +119,12 @@ namespace Main
     int MaxPowerCharger = 2000;
     int MaxPowerInv = 100;
     bool g_EnableCharge = true;
-    bool g_EnableMQTT = true;
 
     unsigned long g_Time500 = 0;
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
 
     char temp_char[10]; // for temporary storage of strings values
-    char *pointer_to_temp_char;
-    float tempfloat;
     char mqtt_topic[60];
 
     // BMS values as structure
@@ -146,14 +133,9 @@ namespace Main
 
     // byte receivedBytes_main[320];
 
-    char current_clamp_ip[40] = "192.168.188.127";
-    char current_clamp_cmd[40] = "/cm?cmnd=status+10";
-    char sensor_resp[20] = "SML";               // or "MT175"
-    char sensor_resp_power[20] = "DJ_TPWRCURR"; // or "P"
-
     uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv;
     uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv;
-    uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange;
+    uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange, gui_savesettings;
     uint16_t gui_GridPower, gui_ChargerVoltage, gui_ChargerCurrent, gui_ChargerPower;
     uint16_t gui_ChargerACVoltage, gui_ChargerACCurrent, gui_ChargerACPower, gui_ChargerACfreq;
 
@@ -163,8 +145,20 @@ namespace Main
     uint16_t guiCapacity, guiSysWorkingTime, guiTotCapacity, guiChargeCurrent, guiLog;
     uint16_t guiSOC, guiBattVoltage, guiBattStatus, guiCellDelta, guiAvgCellVoltage, guiCellCount;
     uint16_t guiMOST, guiT1, guiT2;
+    uint16_t gui_resetsettings, gui_resetESP;
     uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger;
     bool g_enableManualControl;
+    bool wm_resetsetting = false;
+
+    // flag for saving data inside WifiManager
+    bool shouldSaveConfig = true;
+
+    // callback notifying us of the need to save config
+    void saveConfigCallback()
+    {
+        Serial.println("Should save config");
+        shouldSaveConfig = true;
+    }
 
     // Most UI elements are assigned this generic callback which prints some
     // basic information. Event types are defined in ESPUI.h
@@ -341,11 +335,12 @@ namespace Main
 
         // Settings tab
         gui_enableChange = ESPUI.addControl(ControlType::Switcher, "Edit", "", ControlColor::Alizarin, TabSettings, generalCallback);
+        gui_savesettings = ESPUI.addControl(Button, "Save settings", "push", Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(ControlType::Separator, "Management setting", "", ControlColor::None, TabSettings);
-        gui_SetMaxPowerInv = ESPUI.addControl(Slider, "Max Power Inverter", "200", Alizarin, TabSettings, generalCallback);
+        gui_SetMaxPowerInv = ESPUI.addControl(Slider, "Max Power Inverter", String(MaxPowerInv), Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerInv);
         ESPUI.addControl(Max, "", "800", None, gui_SetMaxPowerInv);
-        gui_SetMaxPowerCharger = ESPUI.addControl(Slider, "Max Power Charger", "2000", Alizarin, TabSettings, generalCallback);
+        gui_SetMaxPowerCharger = ESPUI.addControl(Slider, "Max Power Charger", String(MaxPowerCharger), Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerCharger);
         ESPUI.addControl(Max, "", "4000", None, gui_SetMaxPowerCharger);
 
@@ -359,11 +354,14 @@ namespace Main
         gui_setMQTTport = ESPUI.addControl(Text, "MQTT port:", mqtt_port, Alizarin, TabSettings, generalCallback);
         gui_testMQTT = ESPUI.addControl(Button, "Test MQTT", "push", Alizarin, TabSettings, generalCallback);
         gui_enableMQTT = ESPUI.addControl(ControlType::Switcher, "Enable MQTT", "", ControlColor::Alizarin, TabSettings, generalCallback);
+        gui_resetESP = ESPUI.addControl(Button, "Restart controller", "push", Alizarin, TabSettings, generalCallback);
+        gui_resetsettings = ESPUI.addControl(Button, "Reset wifi settings", "push", Alizarin, TabSettings, generalCallback);
 
         // disable editing on settings page
         ESPUI.updateSwitcher(gui_enableChange, false);
         ESPUI.updateSwitcher(gui_enableManControl, false);
         ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
+        ESPUI.setEnabled(gui_savesettings, false);
         ESPUI.setEnabled(gui_setMQTTIP, false);
         ESPUI.setEnabled(gui_setMQTTport, false);
         ESPUI.setEnabled(gui_SetMaxPowerCharger, false);
@@ -372,6 +370,8 @@ namespace Main
         ESPUI.setEnabled(gui_enableMQTT, false);
         ESPUI.setEnabled(gui_enableManControl, false);
         ESPUI.setEnabled(gui_ManualSetPower, false);
+        ESPUI.setEnabled(gui_resetESP, false);
+        ESPUI.setEnabled(gui_resetsettings, false);
     }
 
     // update ESPUI
@@ -431,24 +431,159 @@ namespace Main
         ESPUI.updateLabel(guiCellCount, String(BMS.CellCount));
     }
 
+    // save configuration parameter like mqtt server, max inverter power
+    void saveconfigfile()
+    {
+        // save the custom parameters to FS
+        if (shouldSaveConfig)
+        {
+            Serial.println("saving config");
+#if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
+            DynamicJsonDocument json(1024);
+#else
+            DynamicJsonBuffer jsonBuffer;
+            JsonObject &json = jsonBuffer.createObject();
+#endif
+            json["mqtt_server"] = mqtt_server;
+            json["mqtt_port"] = mqtt_port;
+            json["cur_ip"] = current_clamp_ip;
+            json["cur_cmd"] = current_clamp_cmd;
+            json["sensor_resp"] = sensor_resp;
+            json["sensor_resp_power"] = sensor_resp_power;
+            json["g_EnableMQTT"] = g_EnableMQTT;
+            json["wm_resetsetting"] = wm_resetsetting;
+            json["PowerReserveCharger"] = PowerReserveCharger;
+            json["PowerReserveInv"] = PowerReserveInv;
+            json["MaxPowerCharger"] = MaxPowerCharger;
+            json["MaxPowerInv"] = MaxPowerInv;
+
+            File configFile = LittleFS.open("/config.json", "w");
+            if (!configFile)
+            {
+                Serial.println("failed to open config file for writing");
+            }
+
+#if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
+            serializeJson(json, Serial);
+            serializeJson(json, configFile);
+#else
+            json.printTo(Serial);
+            json.printTo(configFile);
+#endif
+            configFile.close();
+            // end save
+        }
+    }
+
     void init()
     {
         Serial.begin(115200);
         while (!Serial)
             ;
         Serial.println("BOOTED!");
-
         ESPUI.setVerbosity(Verbosity::Quiet);
         // to prepare the filesystem
         // ESPUI.prepareFileSystem();
+
+        // clean FS, for testing
+        // LittleFS.format();
+
+        // read configuration from FS json
+        Serial.println("mounting FS...");
+
+        if (LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED))
+        {
+            Serial.println("mounted file system");
+            if (LittleFS.exists("/config.json"))
+            {
+                // file exists, reading and loading
+                Serial.println("reading config file");
+                File configFile = LittleFS.open("/config.json", "r");
+                if (configFile)
+                {
+                    Serial.println("opened config file");
+                    size_t size = configFile.size();
+                    // Allocate a buffer to store contents of the file.
+                    std::unique_ptr<char[]> buf(new char[size]);
+
+                    configFile.readBytes(buf.get(), size);
+
+#if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
+                    DynamicJsonDocument json(1024);
+                    auto deserializeError = deserializeJson(json, buf.get());
+                    serializeJson(json, Serial);
+                    if (!deserializeError)
+                    {
+#else
+                    DynamicJsonBuffer jsonBuffer;
+                    JsonObject &json = jsonBuffer.parseObject(buf.get());
+                    json.printTo(Serial);
+                    if (json.success())
+                    {
+#endif
+                        Serial.println("\nparsed json");
+                        strcpy(mqtt_server, json["mqtt_server"]);
+                        strcpy(mqtt_port, json["mqtt_port"]);
+                        strcpy(current_clamp_ip, json["cur_ip"]);
+                        strcpy(current_clamp_cmd, json["cur_cmd"]);
+                        strcpy(sensor_resp, json["sensor_resp"]);
+                        strcpy(sensor_resp_power, json["sensor_resp_power"]);
+                        PowerReserveCharger = json["PowerReserveCharger"];
+                        PowerReserveInv = json["PowerReserveInv"];
+                        MaxPowerCharger = json["MaxPowerCharger"];
+                        MaxPowerInv = json["MaxPowerInv"];
+                        g_EnableMQTT = json["g_EnableMQTT"];
+                        wm_resetsetting = json["wm_resetsetting"];
+                    }
+                    else
+                    {
+                        Serial.println("failed to load json config");
+                    }
+                    configFile.close();
+                }
+            }
+        }
+        else
+        {
+            Serial.println("failed to mount FS");
+        }
+        // end read
+
+        // The extra parameters to be configured (can be either global or just in the setup)
+        // After connecting, parameter.getValue() will get you the configured value
+        // id/name placeholder/prompt default length
+        WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+        WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
+        WiFiManagerParameter custom_current_clamp_ip("cur_ip", "current_clamp_ip", current_clamp_ip, 40);
+        WiFiManagerParameter custom_current_clamp_cmd("cur_cmd", "current_clamp_command", current_clamp_cmd, 40);
+        WiFiManagerParameter custom_sensor_resp("sensor_resp", "sensor_resp", sensor_resp, 20);
+        WiFiManagerParameter custom_sensor_resp_power("sensor_resp_power", "sensor_resp_power", sensor_resp_power, 20);
+        //        WiFiManagerParameter custom_g_EnableMQTT("g_EnableMQTT", "g_EnableMQTT", g_EnableMQTT, 1);
 
         // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
         WiFiManager wm;
         wm.setWiFiAutoReconnect(true);
 
+        // set config save notify callback
+        wm.setSaveConfigCallback(saveConfigCallback);
+
+        // add all your parameters here
+        wm.addParameter(&custom_mqtt_server);
+        wm.addParameter(&custom_mqtt_port);
+        wm.addParameter(&custom_current_clamp_ip);
+        wm.addParameter(&custom_current_clamp_cmd);
+        wm.addParameter(&custom_sensor_resp);
+        wm.addParameter(&custom_sensor_resp_power);
+        //        wm.addParameter(&custom_g_EnableMQTT);
+
         // reset settings - wipe stored credentials for testing
         // these are stored by the esp library
         // wm.resetSettings();
+        if (wm_resetsetting)
+        {
+            wm.resetSettings();
+            wm_resetsetting = false;
+        }
 
         // Automatically connect using saved credentials,
         // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
@@ -470,6 +605,26 @@ namespace Main
             // if you get here you have connected to the WiFi
             Serial.println("WiFi connected... :)");
         }
+
+        // read updated parameters
+        /*        strcpy(mqtt_server, custom_mqtt_server.getValue());
+                strcpy(mqtt_port, custom_mqtt_port.getValue());
+                strcpy(current_clamp_ip, custom_current_clamp_ip.getValue());
+                strcpy(current_clamp_cmd, custom_current_clamp_cmd.getValue());
+                strcpy(sensor_resp, custom_sensor_resp.getValue());
+                strcpy(sensor_resp_power, custom_sensor_resp_power.getValue());
+        */
+
+        Serial.println("The values in the file are: ");
+        Serial.println("\tmqtt_server : " + String(mqtt_server));
+        Serial.println("\tmqtt_port : " + String(mqtt_port));
+        Serial.println("\tcurrent clamp : " + String(current_clamp_ip));
+        Serial.println("\tcommand : " + String(current_clamp_cmd));
+        Serial.println("\tResponse  : " + String(sensor_resp));
+        Serial.println("\tResponse power : " + String(sensor_resp_power));
+        Serial.println("\tEnable MQTT : " + String(g_EnableMQTT));
+
+        saveconfigfile();
 
         ArduinoOTA.onStart([]()
                            {
@@ -519,8 +674,9 @@ namespace Main
 
         // crashes when calling some functions inside interrupt
         //  CAN.onReceive(onCANReceive);
-
+#ifndef test_debug
         Huawei::setCurrent(0, true); // set 0 A as default
+#endif
         Soyosource_init_RS485(Soyo_RS485_PORT_RX, Soyo_RS485_PORT_TX, Soyo_RS485_PORT_EN);
         Serial.println("Soyosource inverter RS485 setup done");
 
@@ -565,8 +721,10 @@ namespace Main
 
         if ((millis() - g_Time1000) > 1000)
         {
+#ifndef test_debug
             Huawei::every1000ms();
             // PSclient.loop();
+#endif
 
             // update the value for the inverter every second
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
@@ -576,14 +734,15 @@ namespace Main
 
         if ((millis() - g_Time5000) > 5000)
         {
+#ifndef test_debug
             Huawei::sendGetData(0x00);
             //          Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
             // get the BMS data
             receivedRawData = JKBMS_read_data(JKBMS_RS485_PORT_EN);
             // BMS = JKBMS_DataAnalysis(&receivedRawData.data, receivedRawData.length);
-            BMS = JKBMS_DataAnalysis2(receivedRawData);
-
+            BMS = JKBMS_DataAnalysis(receivedRawData);
+#endif
             // reads actual grid power every 5 seconds
             ActualPower = getActualPower(current_clamp_ip, current_clamp_cmd, sensor_resp, sensor_resp_power);
             ActualVoltage = Huawei::g_PSU.output_voltage;
@@ -612,27 +771,35 @@ namespace Main
             }
             else if (!g_EnableCharge)
             {
-                ActualSetPowerCharger = 0;
+                // ActualSetPowerCharger = 0;
             }
 
             // send commands to the charger and inverter
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
+#ifndef test_debug
             Huawei::setVoltage(ActualSetVoltage, 0x00, false);
+#endif
             if (!g_enableManualControl)
             {
                 ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
+#ifndef test_debug
                 Huawei::setCurrent(ActualSetCurrent, false);
+#endif
             }
             else if (g_enableManualControl)
             {
                 ActualSetCurrent = g_ManualSetPowerCharger / ActualSetVoltage;
+#ifndef test_debug
                 Huawei::setCurrent(ActualSetCurrent, false);
+#endif
             }
 
             GUI_update();
 
             if (g_EnableMQTT)
             {
+                if (!PSclient.connected())
+                    reconnect();          // oif the server is disconnected, reconnect to it
                 if (PSclient.connected()) // only send data, if the server is connected
                 {
                     sprintf(temp_char, "%d", BMS.SOC);
@@ -784,18 +951,41 @@ namespace Main
                     { // is the general switch is disabled, than disconnect
                         PSclient.disconnect();
                     }
-                    else if (!PSclient.connected())
-                    {
-                        g_EnableMQTT = false;
-                        ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
-                    }
                 }
+                else if (!PSclient.connected())
+                {
+                    g_EnableMQTT = false;
+                    ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
+                }
+            }
+        }
+        if (sender->id == gui_savesettings)
+        {
+            if (type == B_DOWN)
+            {
+                saveconfigfile();
+            }
+        }
+        if (sender->id == gui_resetESP)
+        {
+            if (type == B_DOWN)
+            {
+                ESP.restart();
+            }
+        }
+        if (sender->id == gui_resetsettings)
+        {
+            if (type == B_DOWN)
+            {
+                wm_resetsetting = true;
             }
         }
         if (sender->id == gui_enableChange)
         {
             if (type == S_ACTIVE)
             {
+
+                ESPUI.setEnabled(gui_savesettings, true);
                 ESPUI.setEnabled(gui_setMQTTIP, true);
                 ESPUI.setEnabled(gui_setMQTTport, true);
                 ESPUI.setEnabled(gui_SetMaxPowerCharger, true);
@@ -804,9 +994,12 @@ namespace Main
                 ESPUI.setEnabled(gui_enableMQTT, true);
                 ESPUI.setEnabled(gui_enableManControl, true);
                 ESPUI.setEnabled(gui_ManualSetPower, true);
+                ESPUI.setEnabled(gui_resetESP, true);
+                ESPUI.setEnabled(gui_resetsettings, true);
             }
             if (type == S_INACTIVE)
             {
+                ESPUI.setEnabled(gui_savesettings, false);
                 ESPUI.setEnabled(gui_setMQTTIP, false);
                 ESPUI.setEnabled(gui_setMQTTport, false);
                 ESPUI.setEnabled(gui_SetMaxPowerCharger, false);
@@ -815,23 +1008,11 @@ namespace Main
                 ESPUI.setEnabled(gui_enableMQTT, false);
                 ESPUI.setEnabled(gui_enableManControl, false);
                 ESPUI.setEnabled(gui_ManualSetPower, false);
+                ESPUI.setEnabled(gui_resetESP, false);
+                ESPUI.setEnabled(gui_resetsettings, false);
             }
         }
-        /*
-        // ESPUI.setEnabled(controlId, enabled)
-
-            Serial.print("CB: id(");
-            Serial.print(sender->id);
-            Serial.print(") Type(");
-            Serial.print(type);
-            Serial.print(") '");
-            Serial.print(sender->label);
-            Serial.print("' = ");
-            Serial.println(sender->value);
-        */
     }
-
-    //////////////////////////////////////////////////////
 
 }
 

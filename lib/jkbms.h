@@ -95,7 +95,7 @@ void JKBMS_init_RS485(uint8_t rx_pin, uint8_t tx_pin, uint8_t en_pin);
 JK_BMS_RS485_Data JKBMS_read_data(uint8_t en_pin);
 
 // interpret/decode the data from the JK-BMS
-JK_BMS_Data JKBMS_DataAnalysis(byte* data2decode,int d2dlength);
+JK_BMS_Data JKBMS_DataAnalysis2(byte* data2decode,int d2dlength);
 
 // interpret/decode the data from the JK-BMS
-JK_BMS_Data JKBMS_DataAnalysis2(JK_BMS_RS485_Data data2decode);
+JK_BMS_Data JKBMS_DataAnalysis(JK_BMS_RS485_Data data2decode);
