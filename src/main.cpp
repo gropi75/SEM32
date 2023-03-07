@@ -38,7 +38,7 @@ Digital switches:
 
 */
 
-//#define test_debug // uncomment to just test without equipment
+#define test_debug // uncomment to just test without equipment
 //  #define wifitest    // uncomment to debug wifi status
 
 // pins for Soyosource
