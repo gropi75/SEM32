@@ -1,8 +1,8 @@
 # ESP32_R4850g2
-
-![GitHub stars](https://img.shields.io/github/stars/gropi75/ESP32_r4850g2)
-![GitHub forks](https://img.shields.io/github/forks/gropi75/ESP32_r4850g2)
-![GitHub watchers](https://img.shields.io/github/watchers/gropi75/ESP32_r4850g2)
+![GitHub Repo stars](https://img.shields.io/github/stars/gropi75/ESP32_r4850g2?style=plastic)
+![GitHub watchers](https://img.shields.io/github/watchers/gropi75/ESP32_r4850g2?style=plastic)
+![GitHub forks](https://img.shields.io/github/forks/gropi75/ESP32_r4850g2?style=plastic)
+![Release](https://img.shields.io/github/v/release/gropi75/ESP32_r4850g2?include_prereleases)
 
 ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource GNT1200 inverter for a solar powered LIFEPO4 48V battery pack
 
