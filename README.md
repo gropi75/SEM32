@@ -9,7 +9,7 @@ ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource GNT120
 [TOC]
 
 # Main features:
-- control of inverter to minimize power usage of the grid (over RS485)
+- control of inverter to minimize power usage out of the grid (over RS485)
 - control of charger to maximize own usage of solar power (over CAN-bus)
 - adjustable power thresholds
 - optional manual control of charging power
@@ -22,54 +22,66 @@ ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource GNT120
 
 ## Hardware components:
 
-**Inverter:**
-Type: GNT 1200LIM 48
-MAX: Const. Power: 800W (1200W solar operation)
-**Charger:**
-Type: Huawei R4850G2
-**BMS:**
-Type: JK-BD6A20S8P
-Software V.: V10.XY
-Serial No: 2032812241
-**Battary cells:**
-Type: EVE LF90 (3,2V 90AH, Nominal)
-Datasheet No.: LF90-73103
-Cut off Voltage: 3.65V/2.5V
-Std. charge/Discharge: 1.0C
+- **Inverter:**
+  - Type: GNT 1200LIM 48
+  - MAX: Const. Power: 800W (1200W solar operation)
+- **Charger:**
+  - Type: Huawei R4850G2
+- **BMS:**
+  - Type: JK-BD6A20S8P
+  - Software V.: V10.XY
+  - Serial No: 2032812241
+- **Battary cells:**
+  - Type: EVE LF90 (3,2V 90AH, Nominal)
+  - Datasheet No.: LF90-73103
+  - Cut off Voltage: 3.65V/2.5V
+  - Std. charge/Discharge: 1.0C
 
-**Controller:** ESPRESSIF ESP32-WROOM-32U (with ext. Antenna)
-**CAN Driver:**
-Driver IC: SN65HVD230
-**Serial Driver:**
-Driver IC: Max485 CSA (2 pcs. for BMS and Inverter)
-**Display:**
-Driver: SSD1306
-Description: 4 Pin 0.96 Zoll OLED IIC Display Modul 128x64;
-I2C Addr.: 0x3C
-**Temperature Sensors:**
-1-Wire
-Type: DS18B20 waterproof
+- **Controller:**
+  - ESPRESSIF ESP32-WROOM-32U (with ext. Antenna)
+- **CAN interface:**
+  - Driver IC: SN65HVD230
+- **RS485 Serial interface:**
+  - Driver IC: Max485 CSA (2 pcs. for BMS and Inverter)
+- **0.96 inch OLED IIC 128x64 Display:**
+  - Driver: SSD1306
+  - I2C Addr.: 0x3C
+- **Temperature Sensors:**
+  - 1-Wire
+  - Type: DS18B20 waterproof
 
 ## External connectors:
 
-**USB upper: **
+**USB upper:**
+
 Pin 2 (RXD/D-) Output A Max 485 USB Driver for inverter, Inverter Input A+
+
 Pin 3 (TXD/D+) Output B Max 485 USB Driver for inverter, Inverter Input B-
 
 **USB Lower:**
+
 Pin 2 (RXD/D-) CAN L
+
 Pin 3 (TXD/D+) CAN H
 
 **RJ45:**
+
 Pin 1 (Pair 3) Output A Max 485 USB Driver for BMS, BMS Input A+
+
 Pin 2 (Pair 3) Output B Max 485 USB Driver for BMS, BMS Input B-
 
-Pinleiste 6 Pol
+**6 pin connector:**
+
 Pin1 GPIO26 Temp Sensor
+
 Pin2 Ground
+
 Pin3 +3V3
+
 Pin4 NC
+
 Pin5 NC
+
 Pin6 NC
 
 ## Pinning Controller
@@ -111,4 +123,4 @@ Pin6 NC
 
 # Information:
 
-Power Equation for the whole house: ActGridPower + ActBatPower + SolProd = Used Power
+Power Equation for the whole house: $\ ActGridPower + ActBatPower + SolProd = Used Power$
