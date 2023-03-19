@@ -5,6 +5,9 @@
 WiFiClient current_clamp_client; // or WiFiClientSecure for HTTPS; to connect to current sensor
 HTTPClient http;                 // to connect to current sensor
 
+WiFiClient solarprognose_client; // to connect to Solarprognose.de
+HTTPClient http_solar;
+
 // Positive ActPower means, we import power, so we need the inverter
 // Negative ActPower means, we export power, so we can charge the batter
 // Calculate the set power both for charger and inverter.
@@ -72,4 +75,42 @@ int getActualPower(char ip[40], char cmd[40], char resp[20], char resp_power[20]
         actPower = StatusSNS_SML[String(resp_power)]; // -2546
     }
     return actPower;
+}
+
+// calculate max inverter load to have a balanced discharge of the battery over the whole night
+int CalculateBalancedDischargePower(int capacity, float voltage, int actualSOC, int targetSOC, float sunset, float sunrise)
+{
+    // shall we use https://github.com/buelowp/sunset
+    return (int)(capacity * voltage * 0.01 * (actualSOC - targetSOC) / (sunrise - sunset + 24));
+}
+
+// get solar prognosis
+// http://www.solarprognose.de/web/solarprediction/api/v1?access-token=454jelfd&item=inverter&id=2&type=daily
+float getSolarPrognosis(char token[40], char id[4], char today[9], char tomorrow[9])
+{
+    float prognosis_today, prognosis_tomorrow;
+    char solarprognose_adress[83] = "http://www.solarprognose.de/web/solarprediction/api/v1?_format=json&access-token=";
+    http_solar.begin(solarprognose_client, solarprognose_adress + String(token) + "&item=location&id=" + String(id) + "&type=daily");
+    int httpCode = http_solar.GET(); // send the request
+    if (httpCode > 0)
+    {
+        String payload = http_solar.getString(); // Get the request response payload
+        StaticJsonDocument<768> doc;
+        Serial.println(payload);
+        DeserializationError error = deserializeJson(doc, payload);
+
+        if (error)
+        {
+            Serial.print("deserializeJson() failed: ");
+            Serial.println(error.c_str());
+            return 0;
+        }
+        prognosis_today = doc["data"][String(today)]; // 9.322
+        prognosis_tomorrow = doc["data"][String(tomorrow)]; // 20.653
+        Serial.println(String(today));
+        Serial.println(String(prognosis_today));
+        Serial.println(String(tomorrow));
+        Serial.println(String(prognosis_tomorrow));        
+    }
+    return prognosis_tomorrow;
 }

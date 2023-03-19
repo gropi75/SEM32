@@ -79,6 +79,7 @@ FS *filesystem = &LittleFS;
 #include "PowerFunctions.h"
 #include "jkbms.h"
 #include "secrets.h"
+#include "sunrise.h"
 
 TaskHandle_t TaskCan;
 int packetSize;
@@ -118,14 +119,27 @@ namespace Main
     int PowerReserveInv = 15;
     int MaxPowerCharger = 2000;
     int MaxPowerInv = 100;
+    int DynPowerInv;
     bool g_EnableCharge = true;
+    float solar_prognosis;
+    int target_SOC;
+
+    char date_today[9] = "20230319";
+    char date_tomorrow[9] = "20230320";
+    int date_dayofweek_today = 8;
 
     unsigned long g_Time500 = 0;
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
+    unsigned long g_Time30Min = 0;
 
     char temp_char[10]; // for temporary storage of strings values
     char mqtt_topic[60];
+
+    // Time information
+    TimeStruct myTime; // create a TimeStruct instance to hold the returned data
+    float time_now;
+    bool is_day; // true: is day, false: is night
 
     // BMS values as structure
     JK_BMS_Data BMS;
@@ -134,7 +148,7 @@ namespace Main
     // byte receivedBytes_main[320];
 
     uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv;
-    uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv;
+    uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv, gui_DynPowerInv;
     uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange, gui_savesettings;
     uint16_t gui_GridPower, gui_ChargerVoltage, gui_ChargerCurrent, gui_ChargerPower;
     uint16_t gui_ChargerACVoltage, gui_ChargerACCurrent, gui_ChargerACPower, gui_ChargerACfreq;
@@ -144,11 +158,12 @@ namespace Main
     uint16_t guiVoltageCell10, guiVoltageCell11, guiVoltageCell12, guiVoltageCell13, guiVoltageCell14, guiVoltageCell15;
     uint16_t guiCapacity, guiSysWorkingTime, guiTotCapacity, guiChargeCurrent, guiLog;
     uint16_t guiSOC, guiBattVoltage, guiBattStatus, guiCellDelta, guiAvgCellVoltage, guiCellCount;
+    uint16_t gui_today_sunrise, gui_today_sunset, gui_tomorrow_sunrise, gui_prediction;
     uint16_t guiMOST, guiT1, guiT2;
     uint16_t gui_resetsettings, gui_resetESP;
-    uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger;
-    uint16_t gui_SetPowerReserveCharger, gui_SetPowerReserveInverter, gui_BatPower;
-    bool g_enableManualControl;
+    uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger, gui_enabledynamicload;
+    uint16_t gui_SetPowerReserveCharger, gui_SetPowerReserveInverter, gui_BatPower, gui_PVprognosis;
+    bool g_enableManualControl, g_enableDynamicload = false;
     bool wm_resetsetting = false;
 
     // flag for saving data inside WifiManager
@@ -332,8 +347,16 @@ namespace Main
         ESPUI.addControl(ControlType::Separator, "(Dis-)Charge Settings", "", ControlColor::None, TabBatteryInfo);
         gui_MaxPowerCharger = ESPUI.addControl(ControlType::Label, "Max Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_MaxPowerInv = ESPUI.addControl(ControlType::Label, "Max Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_DynPowerInv = ESPUI.addControl(ControlType::Label, "Dynamic Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_PowerReserveCharger = ESPUI.addControl(ControlType::Label, "Power Reserve Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_PowerReserveInv = ESPUI.addControl(ControlType::Label, "Power Reserve Inverter [W]", "0", ControlColor::Emerald, TabBatteryInfo);
+
+        ESPUI.addControl(ControlType::Separator, "Solar info", "", ControlColor::None, TabBatteryInfo);
+        gui_prediction = ESPUI.addControl(ControlType::Label, "Power prediction tomorrow [W]", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_today_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise today", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_today_sunset = ESPUI.addControl(ControlType::Label, "Sunset today", "0", ControlColor::Emerald, TabBatteryInfo);
+        gui_tomorrow_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise tomorrow", "0", ControlColor::Emerald, TabBatteryInfo);       
+
 
         // Settings tab
         gui_enableChange = ESPUI.addControl(ControlType::Switcher, "Edit", "", ControlColor::Alizarin, TabSettings, generalCallback);
@@ -356,6 +379,7 @@ namespace Main
         gui_ManualSetPower = ESPUI.addControl(Slider, "Set charging power manually", "0", Alizarin, TabSettings, generalCallback);
         ESPUI.addControl(Min, "", "0", None, gui_ManualSetPower);
         ESPUI.addControl(Max, "", "4000", None, gui_ManualSetPower);
+        gui_enabledynamicload = ESPUI.addControl(ControlType::Switcher, "Enable dynamic load", "", ControlColor::Alizarin, TabSettings, generalCallback);
 
         ESPUI.addControl(ControlType::Separator, "Network settings", "", ControlColor::None, TabSettings);
         gui_setMQTTIP = ESPUI.addControl(Text, "MQTT Server:", mqtt_server, Alizarin, TabSettings, generalCallback);
@@ -382,6 +406,7 @@ namespace Main
         ESPUI.setEnabled(gui_resetsettings, false);
         ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
         ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
+        ESPUI.setEnabled(gui_enabledynamicload, g_enableDynamicload);
     }
 
     // update ESPUI
@@ -392,6 +417,7 @@ namespace Main
         ESPUI.updateLabel(gui_ActualSetPowerInv, String(ActualSetPowerInv) + "W");
         ESPUI.updateLabel(gui_MaxPowerCharger, String(MaxPowerCharger) + "W");
         ESPUI.updateLabel(gui_MaxPowerInv, String(MaxPowerInv) + "W");
+        ESPUI.updateLabel(gui_DynPowerInv, String(DynPowerInv) + "W");
         ESPUI.updateLabel(gui_PowerReserveCharger, String(PowerReserveCharger) + "W");
         ESPUI.updateLabel(gui_PowerReserveInv, String(PowerReserveInv) + "W");
         ESPUI.updateLabel(gui_GridPower, String(ActualPower) + "W");
@@ -403,7 +429,6 @@ namespace Main
         ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
         ESPUI.updateLabel(gui_ChargerACfreq, String(Huawei::g_PSU.input_freq) + "Hz");
         ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
-
 
         // update the BMS values also only every 5 sec
 
@@ -434,6 +459,12 @@ namespace Main
         ESPUI.updateLabel(guiT1, String(BMS.Battery_T1, 0) + "°C");
         ESPUI.updateLabel(guiT2, String(BMS.Battery_T2, 0) + "°C");
         ESPUI.updateLabel(gui_BatPower, String(BMS.Battery_Power, 0) + "W");
+        ESPUI.updateLabel(gui_prediction, String(solar_prognosis, 0) + "kW");
+        ESPUI.updateLabel(gui_today_sunrise, String(myTime.sunrise_today, 2));
+        ESPUI.updateLabel(gui_today_sunset, String(myTime.sunset_today, 2));
+        ESPUI.updateLabel(gui_tomorrow_sunrise, String(myTime.sunrise_tomorrow, 2));
+
+
 
         ESPUI.updateLabel(guiCapacity, String(BMS.Nominal_Capacity) + "Ah");
         ESPUI.updateLabel(guiSysWorkingTime, String(BMS.days) + " days " + String(BMS.hr) + ":" + String(BMS.mi));
@@ -469,6 +500,7 @@ namespace Main
             json["PowerReserveInv"] = PowerReserveInv;
             json["MaxPowerCharger"] = MaxPowerCharger;
             json["MaxPowerInv"] = MaxPowerInv;
+            json["g_enableDynamicload"] = g_enableDynamicload;
 
             File configFile = LittleFS.open("/config.json", "w");
             if (!configFile)
@@ -547,6 +579,7 @@ namespace Main
                         MaxPowerInv = json["MaxPowerInv"];
                         g_EnableMQTT = json["g_EnableMQTT"];
                         wm_resetsetting = json["wm_resetsetting"];
+                        g_enableDynamicload = json["g_enableDynamicload"];
                     }
                     else
                     {
@@ -697,6 +730,9 @@ namespace Main
         JKBMS_init_RS485(JKBMS_RS485_PORT_RX, JKBMS_RS485_PORT_TX, JKBMS_RS485_PORT_EN);
         Serial.println("JK-BMS RS485 setup done");
 
+        // initialize NTP connection
+        setuptimeClient();
+
         // initialize MQTT, however only connect, if it is enabled
         PSclient.setServer(mqtt_server, atoi(mqtt_port));
         PSclient.setCallback(callback);
@@ -764,7 +800,7 @@ namespace Main
             //            ActualCurrent = info.output_current;
 
             // calculate desired power
-            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
+            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, DynPowerInv);
 
             // decide, whether the charger or inverter shall be activated
 
@@ -901,6 +937,52 @@ namespace Main
             }
             g_Time5000 = millis();
         }
+
+
+
+#ifdef test_debug
+        if ((millis() - g_Time30Min) > 10000)         // every 10 seconds in case of debugging
+#elif
+        if ((millis() - g_Time30Min) > 18000000)         // 18000000 ms = 30 Minutes
+#endif
+
+
+        {
+            TimeData(&myTime, lagmorning, lagevening, laenge, breite); // call the TimeData function with the parameters and the pointer to the TimeStruct instance
+
+            // execute the following only once a day
+            if (date_dayofweek_today != myTime.day_of_week)
+            {
+                // !!! shall be executed only few times a day, due to API limitations. So time functions has to be implemented at first
+                solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
+                date_dayofweek_today = myTime.day_of_week;
+            }
+
+            if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
+            {
+                is_day = !(is_day);
+                if (!is_day) // execute at sunset
+                {
+                    if (g_enableDynamicload)
+                    {
+
+                        if (solar_prognosis < 4.6)
+                        {
+                            target_SOC = int( 100 * (4.6 - solar_prognosis) / (4.6));
+                        }
+                        else
+                            target_SOC = 0;
+                        DynPowerInv = CalculateBalancedDischargePower(BMS.Nominal_Capacity, BMS.Battery_Voltage, BMS.SOC, target_SOC, myTime.sunset_today, myTime.sunrise_tomorrow);
+                    }
+                    else
+                    {
+                        DynPowerInv = MaxPowerInv;
+                    }
+                }
+            }
+
+            g_Time30Min = millis();
+        }
     }
 
     // Most UI elements are assigned this generic callback which prints some
@@ -949,6 +1031,17 @@ namespace Main
             {
                 g_EnableMQTT = false;
                 PSclient.disconnect();
+            }
+        }
+        if (sender->id == gui_enabledynamicload)
+        {
+            if (type == S_ACTIVE)
+            {
+                g_enableDynamicload = true;
+            }
+            if (type == S_INACTIVE)
+            {
+                g_enableDynamicload = false;
             }
         }
         if (sender->id == gui_testMQTT)
@@ -1019,6 +1112,7 @@ namespace Main
                 ESPUI.setEnabled(gui_resetsettings, true);
                 ESPUI.setEnabled(gui_SetPowerReserveCharger, true);
                 ESPUI.setEnabled(gui_SetPowerReserveInverter, true);
+                ESPUI.setEnabled(gui_enabledynamicload, true);
             }
             if (type == S_INACTIVE)
             {
@@ -1035,6 +1129,7 @@ namespace Main
                 ESPUI.setEnabled(gui_resetsettings, false);
                 ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
                 ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
+                ESPUI.setEnabled(gui_enabledynamicload, false);
             }
         }
     }

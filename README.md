@@ -1,12 +1,12 @@
-# ESP32_R4850g2
+# Solar Energy Manager for ESP32 (SEM.32)
 ![GitHub Repo stars](https://img.shields.io/github/stars/gropi75/ESP32_r4850g2?style=plastic)
 ![GitHub watchers](https://img.shields.io/github/watchers/gropi75/ESP32_r4850g2?style=plastic)
 ![GitHub forks](https://img.shields.io/github/forks/gropi75/ESP32_r4850g2?style=plastic)
 ![Release](https://img.shields.io/github/v/release/gropi75/ESP32_r4850g2?include_prereleases)
 
-ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource GNT1200 inverter for a solar powered LIFEPO4 48V battery pack
+SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter, Huawei r4850g2 power supply, JK-BMS and 48V battery. It helps You to maximize the usage of self generated solar power.
 
-[TOC]
+
 
 # Main features:
 - control of inverter to minimize power usage out of the grid (over RS485)
@@ -31,11 +31,14 @@ ESP32 project to control the Huawei R4850G2 Power Supply and a Soyosource GNT120
   - Type: JK-BD6A20S8P
   - Software V.: V10.XY
   - Serial No: 2032812241
-- **Battary cells:**
+- **Battery cells:**
   - Type: EVE LF90 (3,2V 90AH, Nominal)
   - Datasheet No.: LF90-73103
   - Cut off Voltage: 3.65V/2.5V
   - Std. charge/Discharge: 1.0C
+- **Power Meter:**
+  - Type: Tasmota based smart meter from [Hitchi](https://www.photovoltaikforum.com/thread/173032-lesekopf-bei-heise-getestet/)
+
 
 - **Controller:**
   - ESPRESSIF ESP32-WROOM-32U (with ext. Antenna)
