@@ -20,6 +20,15 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 - scalable code for new features
 - CAN dbc file for the charger
 
+## Web GUI
+
+![Summary page](https://github.com/gropi75/ESP32_r4850g2/blob/main/components/Screenshot_GUI_Status.jpg)
+
+![Info page](https://github.com/gropi75/ESP32_r4850g2/blob/main/components/Screenshot_GUI_Info.jpg)
+
+![Settings page](https://github.com/gropi75/ESP32_r4850g2/blob/main/components/Screenshot_GUI_Settings.jpg)
+
+
 ## Hardware components:
 
 - **Inverter:**
