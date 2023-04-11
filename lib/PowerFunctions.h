@@ -10,6 +10,9 @@ int CalculateBalancedDischargePower(int capacity, float voltage, int actualSOC, 
 // get solar prognosis
 float getSolarPrognosis(char token[40], char id[4], char today[9], char tomorrow[9]);
 
+// calculate the charging current based on the max cell voltage
+float CalculateChargingCurrent (int ChargerPower, float ChargerVoltage, float maxCellVoltage, int BatteryTemperature, int BattCapacity, int TimerAccumulation);
+
 /* This Library contols the power plugs for the inverter and the carger.
 The code controls TASMOTA Smart pugs 
 Version: TASMOTA 12.1.0
@@ -62,3 +65,4 @@ topic:
 6: Energy Total     (kWh)
 */
 float GetSmartPlugData(char plugId, short topic);
+

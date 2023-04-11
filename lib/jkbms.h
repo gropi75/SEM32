@@ -59,6 +59,9 @@ int Nominal_Capacity = 0;     // Battery capacity setting
 
 // float Average_Cell_Voltage = 0;
 float Delta_Cell_Voltage = 0;
+float MinCellVoltage = 0;
+float MaxCellVoltage = 0;
+
 float Current_Balancer = 0;
 
 float Battery_Power = 0;

@@ -389,3 +389,4 @@ src/main.cpp
 .pio/build/esp32dev/tmpwft6of8y.tmp
 .pio/build/esp32dev/tmpahxafcje.tmp
 >>>>>>> b4fbd8d467e29a3542412e936fcd37a20a4118f7
+.vscode/settings.json

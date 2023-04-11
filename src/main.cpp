@@ -132,6 +132,7 @@ namespace Main
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
     unsigned long g_Time30Min = 0;
+    
 
     char temp_char[10]; // for temporary storage of strings values
     char mqtt_topic[60];
@@ -830,7 +831,8 @@ namespace Main
 #endif
             if (!g_enableManualControl)
             {
-                ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
+                ActualSetCurrent = CalculateChargingCurrent(ActualSetPowerCharger, ActualSetVoltage, BMS.MaxCellVoltage, BMS.Battery_T1, BMS.Nominal_Capacity, 0 );
+//                ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
 #ifndef test_debug
                 Huawei::setCurrent(ActualSetCurrent, false);
 #endif
