@@ -207,20 +207,55 @@ bool setPVstartflag(float lagmorning, float lagevening, float laenge, float brei
     return pvstartflag; // return pv start produce flag
 }
 
+// calculate UTC offset for EU DST Daylight saving time
+int set_UTC_offset() {
+
+    time_t epochTime = timeClient.getEpochTime();
+   
+    struct tm *ptm = gmtime((time_t *)&epochTime);
+    int monthDay = ptm->tm_mday;           // get current day of the month
+    int currentMonth = ptm->tm_mon + 1;    // get current month
+    int currentYear = ptm->tm_year + 1900; // get current year
+  
+  bool isDST = false;
+  //int currentMonth = ptm->tm_mon + 1;    // get current month
+  int currentDay = timeClient.getDay();
+  if (currentMonth > 3 && currentMonth < 10) {
+    // DST is in effect from the last Sunday of March to the last Sunday of October
+    int lastSunday = ((31 - (5 * currentMonth / 4 + 4)) % 7) + 1;
+    if (currentMonth == 10) {
+      if (currentDay < lastSunday) {
+        isDST = true;
+      }
+    } else if (currentMonth == 3) {
+      if (currentDay >= lastSunday) {
+        isDST = true;
+      }
+    } else {
+      isDST = true;
+    }
+  }
+  if (isDST) {
+    return 7200; // UTC+2 timezone (EU Central Summer Time)
+  } else {
+    return 3600; // UTC+1 timezone (EU Central Time)
+  }
+}
+
+
+
+
+
 //________________________________________________START NTP Client
 // Initialize a NTPClient to get time to calculate sunrise and sunset
 void setuptimeClient()
 {
     // Set offset time in seconds to adjust for your timezone, for example:
-    // GMT +1 = 3600
-    // GMT +8 = 28800
-    // GMT -1 = -3600
-    // GMT 0 = 0
     timeClient.update();
     delay(200);
     timeClient.begin();
     delay(200);
-    timeClient.setTimeOffset(3600);
+    timeClient.setTimeOffset(set_UTC_offset());
 }
 //________________________________________________END NTP client
 
