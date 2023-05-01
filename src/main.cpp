@@ -1,74 +1,58 @@
-/*JSON help: https://arduinojson.org/v6/assistant/#/step1
-ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-point-with-esp32
-
-
-Open: Use of https://github.com/s00500/ESPUI
-
-Pinpout:
-
-Charger (CAN Bus)
-CAN RX:   GPIO4
-CAN TX:   GPIO5
-
-Inverter (RS485)
-TX:     GPIO18
-RX:     GPIO19
-EN:     GPIO23  (if needed by the transceiver)
-
-Display (I2C)
-SDA:   GPIO21
-SCK:   GPIO22
-
-BMS (RS485)???
-TX:  GPIO25
-RX:  GPIO26
-EN:  GPIO
-
-1-wire sensors
-Data:   GPIO23
-
-Digital switches:
-1
-2
-3
-4
-
-
-
+/*
+Project homepage: https://github.com/gropi75/SEM32
 
 */
 
-#define test_debug // uncomment to just test without equipment
-//  #define wifitest    // uncomment to debug wifi status
+// #define test_debug  // uncomment to just test without equipment
+// #define wifitest    // uncomment to debug wifi status
 
-// pins for Soyosource
-#define Soyo_RS485_PORT_TX 18 // GPIO18
-#define Soyo_RS485_PORT_RX 19 // GPIO19
-#define Soyo_RS485_PORT_EN 23 // GPIO23
+#ifndef BSC_Hardware          // for SEM32 HW
+#define Soyo_RS485_PORT_TX 18 // GPIO18    -- DI
+#define Soyo_RS485_PORT_RX 19 // GPIO19    -- RO
+#define Soyo_RS485_PORT_EN 23 // GPIO23    -- DE/RE
 
-#define JKBMS_RS485_PORT_TX 25 // GPIO25
-#define JKBMS_RS485_PORT_RX 26 // GPIO26
-#define JKBMS_RS485_PORT_EN 33 // GPIO33    ???????
+#define JKBMS_RS485_PORT_TX 25 // GPIO25    -- DI
+#define JKBMS_RS485_PORT_RX 26 // GPIO26    -- RO
+#define JKBMS_RS485_PORT_EN 33 // GPIO33    -- DE/RE
+#endif
+
+#ifdef BSC_Hardware // for BSC HW
+/* Serial 0: RX: 3      TX: 1               -- used for programming, ISP
+   Serial 1: RX: 16     TX: 17    EN: 18
+   Serial 2: RX: 23     TX: 25    EN: 2
+   Serial 3: RX: 35     TX: 33    EN: 32
+*/
+
+// use serial 1
+#define Soyo_RS485_PORT_TX 17 //     -- DI
+#define Soyo_RS485_PORT_RX 16 //     -- RO
+#define Soyo_RS485_PORT_EN 18 //     -- DE/RE
+
+// use serial 2
+#define JKBMS_RS485_PORT_TX 25 //     -- DI
+#define JKBMS_RS485_PORT_RX 23 //     -- RO
+#define JKBMS_RS485_PORT_EN 2  //     -- DE/RE
+#endif
 
 #define FORMAT_LITTLEFS_IF_FAILED true
+// You only need to format the filesystem once
+// #define FORMAT_FILESYSTEM       true
+#define FORMAT_FILESYSTEM false
+
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <CAN.h>
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
+#include <WiFiManager.h>       // https://github.com/tzapu/WiFiManager
 #define WEBSERVER_H
 #include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
-
-/* ESP32 Dependencies */
 #include <AsyncTCP.h>
 #include "FS.h"
 #include <LittleFS.h>
 FS *filesystem = &LittleFS;
 #define FileFS LittleFS
 #define FS_Name "LittleFS"
-
-// Littfs error. Solution: update : pio pkg update -g -p espressif32
 
 #include <ESPUI.h>
 #include <PubSubClient.h>
@@ -86,13 +70,8 @@ int packetSize;
 
 WiFiServer server(23);
 WiFiClient serverClient; // for OTA
-
-WiFiClient mqttclient; // to connect to MQTT broker
+WiFiClient mqttclient;   // to connect to MQTT broker
 PubSubClient PSclient(mqttclient);
-
-// You only need to format the filesystem once
-// #define FORMAT_FILESYSTEM       true
-#define FORMAT_FILESYSTEM false
 
 #ifdef test_debug
 const char ESP_Hostname[] = "Battery_Control_ESP32_TEST"; // Battery_Control_ESP32
@@ -102,7 +81,6 @@ const char ESP_Hostname[] = "Battery_Control_ESP32"; // Battery_Control_ESP32
 
 namespace Main
 {
-
     int g_CurrentChannel;
     bool g_Debug[NUM_CHANNELS];
     char g_SerialBuffer[NUM_CHANNELS][255];
@@ -119,20 +97,19 @@ namespace Main
     int PowerReserveInv = 15;
     int MaxPowerCharger = 2000;
     int MaxPowerInv = 100;
-    int DynPowerInv;
+    int DynPowerInv = 800;
     bool g_EnableCharge = true;
     float solar_prognosis;
     int target_SOC;
 
-    char date_today[9] = "20230319";
-    char date_tomorrow[9] = "20230320";
+    char date_today[9];    // = "";
+    char date_tomorrow[9]; // = "20230320";
     int date_dayofweek_today = 8;
 
     unsigned long g_Time500 = 0;
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
     unsigned long g_Time30Min = 0;
-    
 
     char temp_char[10]; // for temporary storage of strings values
     char mqtt_topic[60];
@@ -198,6 +175,7 @@ namespace Main
 
     void CoreTask1(void *parameter)
     {
+        Serial.println("loop on core 2");
         for (;;)
         {
             int packetSize = CAN.parsePacket();
@@ -356,8 +334,7 @@ namespace Main
         gui_prediction = ESPUI.addControl(ControlType::Label, "Power prediction tomorrow [W]", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_today_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise today", "0", ControlColor::Emerald, TabBatteryInfo);
         gui_today_sunset = ESPUI.addControl(ControlType::Label, "Sunset today", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_tomorrow_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise tomorrow", "0", ControlColor::Emerald, TabBatteryInfo);       
-
+        gui_tomorrow_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise tomorrow", "0", ControlColor::Emerald, TabBatteryInfo);
 
         // Settings tab
         gui_enableChange = ESPUI.addControl(ControlType::Switcher, "Edit", "", ControlColor::Alizarin, TabSettings, generalCallback);
@@ -407,7 +384,7 @@ namespace Main
         ESPUI.setEnabled(gui_resetsettings, false);
         ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
         ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
-        ESPUI.setEnabled(gui_enabledynamicload, g_enableDynamicload);
+        ESPUI.setEnabled(gui_enabledynamicload, false);
     }
 
     // update ESPUI
@@ -464,8 +441,6 @@ namespace Main
         ESPUI.updateLabel(gui_today_sunrise, String(myTime.sunrise_today, 2));
         ESPUI.updateLabel(gui_today_sunset, String(myTime.sunset_today, 2));
         ESPUI.updateLabel(gui_tomorrow_sunrise, String(myTime.sunrise_tomorrow, 2));
-
-
 
         ESPUI.updateLabel(guiCapacity, String(BMS.Nominal_Capacity) + "Ah");
         ESPUI.updateLabel(guiSysWorkingTime, String(BMS.days) + " days " + String(BMS.hr) + ":" + String(BMS.mi));
@@ -524,8 +499,15 @@ namespace Main
     void init()
     {
         Serial.begin(115200);
-        while (!Serial)
-            ;
+        while (!Serial);
+        //        pinMode(12, OUTPUT);
+        //        pinMode(13, OUTPUT);
+        //        pinMode(14, OUTPUT);
+        //        pinMode(26, OUTPUT);
+
+        //        digitalWrite(26, LOW);
+        //        digitalWrite(14, HIGH);
+
         Serial.println("BOOTED!");
         ESPUI.setVerbosity(Verbosity::Quiet);
         // to prepare the filesystem
@@ -701,6 +683,10 @@ namespace Main
         server.begin();
         server.setNoDelay(true);
 
+#ifdef BSC_Hardware
+        CAN.setPins(5, 4); // BSC Hardware is using different pinout
+#endif
+
         if (!CAN.begin(125E3))
         {
             Serial.println("Starting CAN failed!");
@@ -724,10 +710,11 @@ namespace Main
 #ifndef test_debug
         Huawei::setCurrent(0, true); // set 0 A as default
 #endif
+        DynPowerInv = MaxPowerInv;
         Soyosource_init_RS485(Soyo_RS485_PORT_RX, Soyo_RS485_PORT_TX, Soyo_RS485_PORT_EN);
         Serial.println("Soyosource inverter RS485 setup done");
 
-        // initialize RS485 power for JK_BMS
+        // initialize RS485 interface for JK_BMS
         JKBMS_init_RS485(JKBMS_RS485_PORT_RX, JKBMS_RS485_PORT_TX, JKBMS_RS485_PORT_EN);
         Serial.println("JK-BMS RS485 setup done");
 
@@ -740,11 +727,9 @@ namespace Main
         if (g_EnableMQTT)
             reconnect();
 
-        // initialize ESPUI
+        // initialize and start ESPUI
         GUI_init();
-
-        // start ESPUI
-        ESPUI.begin("Battery Management");
+        ESPUI.begin("Solar Energy Manager32");
         Serial.println("Init done");
     }
 
@@ -762,7 +747,6 @@ namespace Main
     void loop()
     {
         // CAN handling and OTA shifted to core 1
-
         if ((millis() - g_Time500) > 500)
         {
 
@@ -773,12 +757,10 @@ namespace Main
         {
 #ifndef test_debug
             Huawei::every1000ms();
-            // PSclient.loop();
 #endif
 
             // update the value for the inverter every second
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
-
             g_Time1000 = millis();
         }
 
@@ -788,23 +770,22 @@ namespace Main
             Huawei::sendGetData(0x00);
             //          Huawei::HuaweiInfo &info = Huawei::g_PSU;
 
-            // get the BMS data
+            // get and interpret the BMS data
             receivedRawData = JKBMS_read_data(JKBMS_RS485_PORT_EN);
-            // BMS = JKBMS_DataAnalysis(&receivedRawData.data, receivedRawData.length);
             BMS = JKBMS_DataAnalysis(receivedRawData);
 #endif
             // reads actual grid power every 5 seconds
             ActualPower = getActualPower(current_clamp_ip, current_clamp_cmd, sensor_resp, sensor_resp_power);
             ActualVoltage = Huawei::g_PSU.output_voltage;
-            //            ActualVoltage = info.output_voltage;
             ActualCurrent = Huawei::g_PSU.output_current;
-            //            ActualCurrent = info.output_current;
 
-            // calculate desired power
-            ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, DynPowerInv);
+            // calculate desired power, including Dynamic Load calculation for the inverter.
+            if (g_enableDynamicload)
+                ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, DynPowerInv);
+            else
+                ActualSetPower = CalculatePower(ActualPower, ActualSetPower, PowerReserveCharger, MaxPowerCharger, PowerReserveInv, MaxPowerInv);
 
             // decide, whether the charger or inverter shall be activated
-
             if (ActualSetPower >= 0)
             { // inverter
                 ActualSetPowerCharger = 0;
@@ -831,7 +812,7 @@ namespace Main
 #endif
             if (!g_enableManualControl)
             {
-                ActualSetCurrent = CalculateChargingCurrent(ActualSetPowerCharger, ActualSetVoltage, BMS.MaxCellVoltage, BMS.Battery_T1, BMS.Nominal_Capacity, 0 );
+                ActualSetCurrent = CalculateChargingCurrent(ActualSetPowerCharger, ActualSetVoltage, BMS.MaxCellVoltage, BMS.Battery_T1, BMS.Nominal_Capacity, 0);
 //                ActualSetCurrent = ActualSetPowerCharger / ActualSetVoltage;
 #ifndef test_debug
                 Huawei::setCurrent(ActualSetCurrent, false);
@@ -844,7 +825,6 @@ namespace Main
                 Huawei::setCurrent(ActualSetCurrent, false);
 #endif
             }
-
             GUI_update();
 
             if (g_EnableMQTT)
@@ -940,51 +920,39 @@ namespace Main
             g_Time5000 = millis();
         }
 
-
-
 #ifdef test_debug
-        if ((millis() - g_Time30Min) > 10000)         // every 10 seconds in case of debugging
-#elif
-        if ((millis() - g_Time30Min) > 18000000)         // 18000000 ms = 30 Minutes
+        if ((millis() - g_Time30Min) > 10000) // every 10 seconds in case of debugging
 #endif
-
-
-        {
-            TimeData(&myTime, lagmorning, lagevening, laenge, breite); // call the TimeData function with the parameters and the pointer to the TimeStruct instance
-
-            // execute the following only once a day
-            if (date_dayofweek_today != myTime.day_of_week)
+#ifndef test_debug
+            if (((millis() - g_Time30Min) > 7200000) || (date_dayofweek_today == 8)) // 7.200.000 ms = 2 hours, due to daily API call limits
+#endif
             {
-                // !!! shall be executed only few times a day, due to API limitations. So time functions has to be implemented at first
-                solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
-                date_dayofweek_today = myTime.day_of_week;
-            }
+                TimeData(&myTime, lagmorning, lagevening, laenge, breite); // call the TimeData function with the parameters and the pointer to the TimeStruct instance
 
-            if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
-            {
-                is_day = !(is_day);
-                if (!is_day) // execute at sunset
+                // execute the following only once a day due to API limitations
+                if (date_dayofweek_today != myTime.day_of_week)
                 {
-                    if (g_enableDynamicload)
-                    {
+                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
+                    date_dayofweek_today = myTime.day_of_week;
+                }
 
+                if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
+                {
+                    is_day = !(is_day);
+                    if (!is_day) // execute at sunset
+                    {
                         if (solar_prognosis < 4.6)
                         {
-                            target_SOC = int( 100 * (4.6 - solar_prognosis) / (4.6));
+                            target_SOC = int(100 * (4.6 - solar_prognosis) / (4.6));
                         }
                         else
                             target_SOC = 0;
                         DynPowerInv = CalculateBalancedDischargePower(BMS.Nominal_Capacity, BMS.Battery_Voltage, BMS.SOC, target_SOC, myTime.sunset_today, myTime.sunrise_tomorrow);
                     }
-                    else
-                    {
-                        DynPowerInv = MaxPowerInv;
-                    }
                 }
-            }
 
-            g_Time30Min = millis();
-        }
+                g_Time30Min = millis();
+            }
     }
 
     // Most UI elements are assigned this generic callback which prints some

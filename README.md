@@ -50,7 +50,7 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 
 
 - **Controller:**
-  - ESPRESSIF ESP32-WROOM-32U (with ext. Antenna)
+  - [ESPRESSIF ESP32-WROOM-32U DEVKITC(with ext. Antenna)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/hw-reference/esp32/get-started-devkitc.html)
 - **CAN interface:**
   - Driver IC: SN65HVD230
 - **RS485 Serial interface:**
@@ -136,3 +136,14 @@ Pin6 NC
 # Information:
 
 Power Equation for the whole house: $\ ActGridPower + ActBatPower + SolProd = Used Power$
+
+JSON help: https://arduinojson.org/v6/assistant/#/step1
+
+ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-point-with-esp32
+
+BSC (Battery Safety Controller) homepage: https://github.com/shining-man/bsc_fw
+
+
+# Known issues:
+
+Solution for Littlefs error: pio pkg update -g -p espressif32
