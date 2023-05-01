@@ -112,7 +112,7 @@ namespace Main
     unsigned long g_Time5000 = 0;
     unsigned long g_Time30Min = 0;
 
-    char temp_char[10]; // for temporary storage of strings values
+    char temp_char[20]; // for temporary storage of strings values
     char mqtt_topic[60];
 
     // Time information
@@ -144,6 +144,7 @@ namespace Main
     uint16_t gui_SetPowerReserveCharger, gui_SetPowerReserveInverter, gui_BatPower, gui_PVprognosis;
     bool g_enableManualControl, g_enableDynamicload = false;
     bool wm_resetsetting = false;
+    int MQTTdisconnect_counter = 0;
 
     // flag for saving data inside WifiManager
     bool shouldSaveConfig = true;
@@ -195,71 +196,6 @@ namespace Main
             if (g_EnableMQTT)
                 PSclient.loop();
             delay(200);
-        }
-    }
-
-    // (re)connect to MQTT broker
-    void reconnect()
-    {
-        // Loop until we're reconnected
-        while (!PSclient.connected())
-        {
-            Serial.print("Attempting MQTT connection...");
-            // Create a client ID
-            String clientId = ESP_Hostname;
-            clientId += String(random(0xffff), HEX);
-            // Attempt to connect
-            if (PSclient.connect(clientId.c_str()))
-            {
-                Serial.println("connected");
-                // Once connected, publish an announcement...
-                PSclient.publish("myoutTopic", "hello world");
-                // ... and resubscribe
-                PSclient.subscribe("BatteryCharger/enable");
-            }
-            else
-            {
-                Serial.print("failed, rc=");
-                Serial.print(PSclient.state());
-                Serial.println(" try again in 5 seconds");
-                // Wait 5 seconds before retrying
-                delay(5000);
-            }
-        }
-    }
-
-    // callback function for MQTT
-    void callback(char *topic, byte *message, unsigned int length)
-    {
-        Serial.print("Message arrived on topic: ");
-        Serial.print(topic);
-        Serial.print(". Message: ");
-        String messageTemp;
-
-        for (int i = 0; i < length; i++)
-        {
-            Serial.print((char)message[i]);
-            messageTemp += (char)message[i];
-        }
-        Serial.println();
-
-        // Feel free to add more if statements to control more GPIOs with MQTT
-
-        // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
-        // Changes the output state according to the message
-        if (String(topic) == "BatteryCharger/enable")
-        {
-            Serial.print("Changing output to ");
-            if (messageTemp == "1")
-            {
-                //  Serial.println("on");
-                g_EnableCharge = true;
-            }
-            else if (messageTemp == "0")
-            {
-                //  Serial.println("off");
-                g_EnableCharge = false;
-            }
         }
     }
 
@@ -450,6 +386,79 @@ namespace Main
         //    ESPUI.updateLabel(guiSysWorkingTime, str);
         ESPUI.updateLabel(guiTotCapacity, String(BMS.totBattCycleCapacity) + "Ah");
         ESPUI.updateLabel(guiCellCount, String(BMS.CellCount));
+    }
+
+    // (re)connect to MQTT broker
+    void reconnect()
+    {
+        // Loop until we're reconnected
+        while (!PSclient.connected())
+        {
+            Serial.print("Attempting MQTT connection...");
+            // Create a client ID
+            String clientId = ESP_Hostname;
+            clientId += String(random(0xffff), HEX);
+            // Attempt to connect
+            if (PSclient.connect(clientId.c_str()))
+            {
+                Serial.println("connected");
+                // Once connected, publish an announcement...
+                PSclient.publish("myoutTopic", "hello world");
+                // ... and resubscribe
+                PSclient.subscribe("BatteryCharger/enable");
+            }
+            else
+            {
+                Serial.print("failed, rc=");
+                Serial.print(PSclient.state());
+                Serial.println(" try again in 5 seconds");
+                // Wait 5 seconds before retrying
+                MQTTdisconnect_counter++;
+                if (MQTTdisconnect_counter > 10)                    // if reconnect fails several times, MQTT is disabled
+                {
+                    g_EnableMQTT = false;
+                    ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
+                    GUI_update();
+                    break;
+                }
+                delay(5000);
+            }
+        }
+    }
+
+    // callback function for MQTT
+    void callback(char *topic, byte *message, unsigned int length)
+    {
+        Serial.print("Message arrived on topic: ");
+        Serial.print(topic);
+        Serial.print(". Message: ");
+        String messageTemp;
+
+        for (int i = 0; i < length; i++)
+        {
+            Serial.print((char)message[i]);
+            messageTemp += (char)message[i];
+        }
+        Serial.println();
+
+        // Feel free to add more if statements to control more GPIOs with MQTT
+
+        // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
+        // Changes the output state according to the message
+        if (String(topic) == "BatteryCharger/enable")
+        {
+            Serial.print("Changing output to ");
+            if (messageTemp == "1")
+            {
+                //  Serial.println("on");
+                g_EnableCharge = true;
+            }
+            else if (messageTemp == "0")
+            {
+                //  Serial.println("off");
+                g_EnableCharge = false;
+            }
+        }
     }
 
     // save configuration parameter like mqtt server, max inverter power
@@ -826,6 +835,8 @@ namespace Main
                 Huawei::setCurrent(ActualSetCurrent, false);
 #endif
             }
+            
+
             GUI_update();
 
             if (g_EnableMQTT)
@@ -916,6 +927,9 @@ namespace Main
 
                     sprintf(mqtt_topic, "%s/Data/Balance_Current", ESP_Hostname);
                     PSclient.publish(mqtt_topic, dtostrf(BMS.Balance_Curr, 6, 3, temp_char));
+
+                    sprintf(mqtt_topic, "%s/Data/Max_Cell_Voltage", ESP_Hostname);
+                    PSclient.publish(mqtt_topic, dtostrf(BMS.MaxCellVoltage, 6, 3, temp_char));
                 }
             }
             g_Time5000 = millis();
@@ -994,6 +1008,7 @@ namespace Main
         }
         if (sender->id == gui_enableMQTT)
         {
+            MQTTdisconnect_counter = 0;         // if user actively enabling/disabling MQTT, than the counter is reset to 0 
             if (type == S_ACTIVE)
             {
                 g_EnableMQTT = true;
@@ -1029,6 +1044,7 @@ namespace Main
                     { // is the general switch is disabled, than disconnect
                         PSclient.disconnect();
                     }
+                MQTTdisconnect_counter = 0;
                 }
                 else if (!PSclient.connected())
                 {

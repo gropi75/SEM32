@@ -144,6 +144,9 @@ ESP32 infos: https://www.upesy.com/blogs/tutorials/how-to-connect-wifi-acces-poi
 
 BSC (Battery Safety Controller) homepage: https://github.com/shining-man/bsc_fw
 
+JK-BMS Protocol: https://github.com/jblance/mpp-solar/issues/112#issuecomment-850585642
+
+JK-BMS collection of NEEY: https://github.com/NEEY-electronic/JK/tree/JK-BMS
 
 # Known issues:
 
