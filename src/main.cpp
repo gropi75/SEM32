@@ -100,10 +100,11 @@ namespace Main
     int DynPowerInv = 800;
     bool g_EnableCharge = true;
     float solar_prognosis;
-    int target_SOC;
+    int target_SOC;   // [%]
+    float BatteryCapacity= 4.6;    // [kWh]
 
-    char date_today[9];    // = "";
-    char date_tomorrow[9]; // = "20230320";
+    char date_today[9];    // = "yyyymmdd";
+    char date_tomorrow[9]; // = "yyyymmdd";
     int date_dayofweek_today = 8;
 
     unsigned long g_Time500 = 0;
@@ -941,9 +942,10 @@ namespace Main
                     is_day = !(is_day);
                     if (!is_day) // execute at sunset
                     {
-                        if (solar_prognosis < 4.6)
+                        BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 /1000;
+                        if (solar_prognosis < BatteryCapacity)
                         {
-                            target_SOC = int(100 * (4.6 - solar_prognosis) / (4.6));
+                            target_SOC = int(100 * (BatteryCapacity - solar_prognosis) / (BatteryCapacity));
                         }
                         else
                             target_SOC = 0;

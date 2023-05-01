@@ -9,16 +9,18 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 
 
 # Main features:
-- control of inverter to minimize power usage out of the grid (over RS485)
-- control of charger to maximize own usage of solar power (over CAN-bus)
-- adjustable power thresholds
-- optional manual control of charging power
-- access to JK-BMS data (over RS485)
-- web GUI
-- wifi configuration portal
-- MQTT client
-- scalable code for new features
-- CAN dbc file for the charger
+- [x] control of inverter to minimize power usage out of the grid (over RS485)
+- [x] control of charger to maximize own usage of solar power (over CAN-bus)
+- [x] adjustable power thresholds
+- [x] optional manual control of charging power
+- [x] access to JK-BMS data (over RS485)
+- [ ] web GUI
+- [x] wifi configuration portal
+- [x] MQTT client
+- [x] scalable code for new features
+- [ ] CAN dbc file for the charger
+- [x] runs ESP32 boards with RS485+CAN shield
+- [ ] in prepareation to run on the [BSC-Hardware](https://github.com/shining-man/bsc_hw)
 
 ## Web GUI
 
@@ -39,7 +41,6 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 - **BMS:**
   - Type: JK-BD6A20S8P
   - Software V.: V10.XY
-  - Serial No: 2032812241
 - **Battery cells:**
   - Type: EVE LF90 (3,2V 90AH, Nominal)
   - Datasheet No.: LF90-73103
@@ -146,4 +147,5 @@ BSC (Battery Safety Controller) homepage: https://github.com/shining-man/bsc_fw
 
 # Known issues:
 
-Solution for Littlefs error: pio pkg update -g -p espressif32
+Solution for Littlefs error: `pio pkg update -g -p espressif32`
+
