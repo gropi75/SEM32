@@ -77,6 +77,8 @@ JK_BMS_Data JKBMS_DataAnalysis2(byte *data2decode, int d2dlength)
         // n<15 ? Serial.print("V, ") : Serial.println("V");
         i += 3;
       }
+      Decoded.MinCellVoltage = min;
+      Decoded.MaxCellVoltage = max;
       Decoded.Delta_Cell_Voltage = max - min;
       break;
 

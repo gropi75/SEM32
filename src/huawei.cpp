@@ -202,7 +202,7 @@ void setVoltageHex(uint16_t hex, uint8_t addr, bool perm)
 
 void setCurrent(float i, bool perm)
 {
-    uint16_t hex = i * 30.0;
+    uint16_t hex = i * 20.0;        // was 30.0; 
 
     setCurrentHex(hex, perm);
 }
