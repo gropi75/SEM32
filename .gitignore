@@ -653,3 +653,7 @@ src/main.cpp
 .pio/libdeps/esp32dev/CAN
 .pio/libdeps/esp32dev/CAN
 .pio/libdeps/esp32dev/CAN
+.pio/build/bsc/bootloader.bin
+.pio/build/bsc/firmware.bin
+.pio/build/bsc/idedata.json
+.pio/build/bsc/partitions.bin

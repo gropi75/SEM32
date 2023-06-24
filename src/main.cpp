@@ -39,12 +39,11 @@ Project homepage: https://github.com/gropi75/SEM32
 // #define FORMAT_FILESYSTEM       true
 #define FORMAT_FILESYSTEM false
 
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <CAN.h>
-#include <WiFiManager.h>       // https://github.com/tzapu/WiFiManager
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #define WEBSERVER_H
 #include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
 #include <AsyncTCP.h>
@@ -100,8 +99,8 @@ namespace Main
     int DynPowerInv = 800;
     bool g_EnableCharge = true;
     float solar_prognosis;
-    int target_SOC;   // [%]
-    float BatteryCapacity= 4.6;    // [kWh]
+    int target_SOC;              // [%]
+    float BatteryCapacity = 4.6; // [kWh]
 
     char date_today[9];    // = "yyyymmdd";
     char date_tomorrow[9]; // = "yyyymmdd";
@@ -156,8 +155,7 @@ namespace Main
         shouldSaveConfig = true;
     }
 
-    // Most UI elements are assigned this generic callback which prints some
-    // basic information. Event types are defined in ESPUI.h
+    // Most UI elements are assigned this generic callback which prints some basic information. Event types are defined in ESPUI.h
     void generalCallback(Control *sender, int type);
 
     void onCANReceive(int packetSize)
@@ -414,7 +412,7 @@ namespace Main
                 Serial.println(" try again in 5 seconds");
                 // Wait 5 seconds before retrying
                 MQTTdisconnect_counter++;
-                if (MQTTdisconnect_counter > 10)                    // if reconnect fails several times, MQTT is disabled
+                if (MQTTdisconnect_counter > 10) // if reconnect fails several times, MQTT is disabled
                 {
                     g_EnableMQTT = false;
                     ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
@@ -509,7 +507,8 @@ namespace Main
     void init()
     {
         Serial.begin(115200);
-        while (!Serial);
+        while (!Serial)
+            ;
         //        pinMode(12, OUTPUT);
         //        pinMode(13, OUTPUT);
         //        pinMode(14, OUTPUT);
@@ -835,7 +834,6 @@ namespace Main
                 Huawei::setCurrent(ActualSetCurrent, false);
 #endif
             }
-            
 
             GUI_update();
 
@@ -939,15 +937,17 @@ namespace Main
         if ((millis() - g_Time30Min) > 10000) // every 10 seconds in case of debugging
 #endif
 #ifndef test_debug
-            if (((millis() - g_Time30Min) > 7200000) || (date_dayofweek_today == 8)) // 7.200.000 ms = 2 hours, due to daily API call limits
+            if (((millis() - g_Time30Min) > (180*60*1000)) || (date_dayofweek_today == 8)) // 7.200.000 ms = 2 hours, 10.800.000 = 3h due to daily API call limits
 #endif
             {
                 TimeData(&myTime, lagmorning, lagevening, laenge, breite); // call the TimeData function with the parameters and the pointer to the TimeStruct instance
+                // for testing purpose we execute it several time a day
+                solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
 
                 // execute the following only once a day due to API limitations
                 if (date_dayofweek_today != myTime.day_of_week)
                 {
-                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
+//                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
                     date_dayofweek_today = myTime.day_of_week;
                 }
 
@@ -956,7 +956,7 @@ namespace Main
                     is_day = !(is_day);
                     if (!is_day) // execute at sunset
                     {
-                        BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 /1000;
+                        BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 / 1000;
                         if (solar_prognosis < BatteryCapacity)
                         {
                             target_SOC = int(100 * (BatteryCapacity - solar_prognosis) / (BatteryCapacity));
@@ -1008,7 +1008,7 @@ namespace Main
         }
         if (sender->id == gui_enableMQTT)
         {
-            MQTTdisconnect_counter = 0;         // if user actively enabling/disabling MQTT, than the counter is reset to 0 
+            MQTTdisconnect_counter = 0; // if user actively enabling/disabling MQTT, than the counter is reset to 0
             if (type == S_ACTIVE)
             {
                 g_EnableMQTT = true;
@@ -1044,7 +1044,7 @@ namespace Main
                     { // is the general switch is disabled, than disconnect
                         PSclient.disconnect();
                     }
-                MQTTdisconnect_counter = 0;
+                    MQTTdisconnect_counter = 0;
                 }
                 else if (!PSclient.connected())
                 {

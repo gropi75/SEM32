@@ -129,7 +129,7 @@ float CalculateChargingCurrent(int ChargerPower, float ChargerVoltage, float max
   {
     if (maxCellVoltage >= 3.5)                                                    // accumulation stage?
     {
-      if ((millis() - g_AccumuationTimer) < 60000)                                // limit this stage to 60 minutes
+      if ((millis() - g_AccumuationTimer) < 3600000)                                // limit this stage to 60 minutes
       {                                                                            
         retvalue = constrain(ChargerPower / ChargerVoltage, 0, BattCapacity / 10); // limit the charging current to 0.1C
       }
