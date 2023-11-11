@@ -101,6 +101,7 @@ namespace Main
     float solar_prognosis;
     int target_SOC;              // [%]
     float BatteryCapacity = 4.6; // [kWh]
+    float expDaytimeUsage = 3.0;
 
     char date_today[9];    // = "yyyymmdd";
     char date_tomorrow[9]; // = "yyyymmdd";
@@ -957,9 +958,13 @@ namespace Main
                     if (!is_day) // execute at sunset
                     {
                         BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 / 1000;
-                        if (solar_prognosis < BatteryCapacity)
+                        if (solar_prognosis < expDaytimeUsage)
                         {
-                            target_SOC = int(100 * (BatteryCapacity - solar_prognosis) / (BatteryCapacity));
+                            target_SOC = 100;
+                        }
+                        else if (solar_prognosis < (BatteryCapacity + expDaytimeUsage))
+                        {
+                            target_SOC = int(100 * (BatteryCapacity - solar_prognosis + expDaytimeUsage) / (BatteryCapacity));
                         }
                         else
                             target_SOC = 0;

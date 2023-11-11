@@ -294,7 +294,6 @@ secret.txt
 lib/secrets.h
 .pio/build/esp32dev/tmpxy9nr2xy.tmp
 .pio/build/esp32dev/sizedata.json
-src/main.cpp
 .pio/build/esp32dev/tmpejnlu9n3.tmp
 .pio/build/esp32dev/tmpl30j3mcq.tmp
 .pio/build/esp32dev/tmpsx61zlsm.tmp
