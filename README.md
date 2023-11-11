@@ -13,14 +13,17 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 - [x] control of charger to maximize own usage of solar power (over CAN-bus)
 - [x] adjustable power thresholds
 - [x] optional manual control of charging power
+- [x] optional dynamic load calculation to reduce wear of battery due to low chage status
+- [ ] charge current limitation
 - [x] access to JK-BMS data (over RS485)
-- [ ] web GUI
+- [ ] new web GUI
 - [x] wifi configuration portal
 - [x] MQTT client
 - [x] scalable code for new features
-- [ ] CAN dbc file for the charger
+- [x] CAN dbc file for the charger
 - [x] runs ESP32 boards with RS485+CAN shield
-- [x] in prepareation to run on the [BSC-Hardware](https://github.com/shining-man/bsc_hw)
+- [x] runs on ESP32 and on the [BSC-Hardware](https://github.com/shining-man/bsc_hw)
+
 
 ## Web GUI
 

@@ -83,7 +83,11 @@ int getActualPower(char ip[40], char cmd[40], char resp[20], char resp_power[20]
 int CalculateBalancedDischargePower(int capacity, float voltage, int actualSOC, int targetSOC, float sunset, float sunrise)
 {
   // shall we use https://github.com/buelowp/sunset
-  return (int)(capacity * voltage * 0.01 * (actualSOC - targetSOC) / (sunrise - sunset + 24));
+  if (actualSOC < targetSOC)
+  {
+    return 0;
+  }
+  else return (int)(capacity * 0.01 * (actualSOC - targetSOC) / (sunrise - sunset + 24));
 }
 
 // get solar prognosis
