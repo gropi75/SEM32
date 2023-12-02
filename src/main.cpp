@@ -951,11 +951,14 @@ namespace Main
 //                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
                     date_dayofweek_today = myTime.day_of_week;
                 }
+                g_Time30Min = millis();
+            }
 
-                if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
+            // at sunrise and sunset execute the following section 
+            if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
                 {
                     is_day = !(is_day);
-                    if (!is_day) // execute at sunset
+                    if (!is_day) // execute at sunset the calculation of the dynamic power for the night
                     {
                         BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 / 1000;
                         if (solar_prognosis < expDaytimeUsage)
@@ -971,9 +974,6 @@ namespace Main
                         DynPowerInv = CalculateBalancedDischargePower(BMS.Nominal_Capacity, BMS.Battery_Voltage, BMS.SOC, target_SOC, myTime.sunset_today, myTime.sunrise_tomorrow);
                     }
                 }
-
-                g_Time30Min = millis();
-            }
     }
 
     // Most UI elements are assigned this generic callback which prints some
