@@ -656,3 +656,6 @@ lib/secrets.h
 .pio/build/bsc/firmware.bin
 .pio/build/bsc/idedata.json
 .pio/build/bsc/partitions.bin
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Deserialization/DeserializationOptions.hpp
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Strings/StringTraits.hpp
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Strings/Adapters/StringObject.hpp
