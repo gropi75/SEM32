@@ -55,6 +55,8 @@ Module.symvers
 Mkfile.old
 dkms.conf
 secret.txt
+data/
+.pio/
 .pio/build/project.checksum
 .pio/build/esp32dev/idedata.json
 .pio/libdeps/esp32dev/integrity.dat
@@ -659,3 +661,6 @@ lib/secrets.h
 .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Deserialization/DeserializationOptions.hpp
 .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Strings/StringTraits.hpp
 .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Strings/Adapters/StringObject.hpp
+.pio/build/esp32dev/.sconsign311.dblite
+.pio/build/bsc/.sconsign311.dblite
+.pio/libdeps/bsc/ArduinoJson@6.21.3/.clang-format

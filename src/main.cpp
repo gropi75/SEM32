@@ -3,10 +3,11 @@ Project homepage: https://github.com/gropi75/SEM32
 
 */
 
-// #define test_debug  // uncomment to just test without equipment
+//#define test_debug // uncomment to just test without equipment
 // #define wifitest    // uncomment to debug wifi status
+// #define TCAN485_Hardware
 
-#ifndef BSC_Hardware          // for SEM32 HW
+#ifdef ESP32DEV               // for SEM32 HW
 #define Soyo_RS485_PORT_TX 18 // GPIO18    -- DI
 #define Soyo_RS485_PORT_RX 19 // GPIO19    -- RO
 #define Soyo_RS485_PORT_EN 23 // GPIO23    -- DE/RE
@@ -14,6 +15,35 @@ Project homepage: https://github.com/gropi75/SEM32
 #define JKBMS_RS485_PORT_TX 25 // GPIO25    -- DI
 #define JKBMS_RS485_PORT_RX 26 // GPIO26    -- RO
 #define JKBMS_RS485_PORT_EN 33 // GPIO33    -- DE/RE
+
+// #define CAN_TX_PIN xx
+// #define CAN_RX_PIN xx
+
+#endif
+
+#ifdef TCAN485_Hardware       // for LILYGO TCAN485 Board
+#define Soyo_RS485_PORT_TX 25 // GPIO18    -- DI
+#define Soyo_RS485_PORT_RX 32 // GPIO19    -- RO
+#define Soyo_RS485_PORT_EN 33 // GPIO23    -- DE/RE
+
+#define JKBMS_RS485_PORT_TX 22 // GPIO25    -- DI
+#define JKBMS_RS485_PORT_RX 21 // GPIO26    -- RO
+#define JKBMS_RS485_PORT_EN 17 // GPIO33    -- DE/RE
+#define RS485_SE_PIN 19        // 22 /SHDN
+
+#define PIN_5V_EN 16
+
+#define CAN_TX_PIN 26
+#define CAN_RX_PIN 27
+#define CAN_SE_PIN 23
+
+#define SD_MISO_PIN 2
+#define SD_MOSI_PIN 15
+#define SD_SCLK_PIN 14
+#define SD_CS_PIN 13
+
+#define WS2812_PIN 4
+
 #endif
 
 #ifdef BSC_Hardware // for BSC HW
@@ -32,6 +62,10 @@ Project homepage: https://github.com/gropi75/SEM32
 #define JKBMS_RS485_PORT_TX 25 //     -- DI
 #define JKBMS_RS485_PORT_RX 23 //     -- RO
 #define JKBMS_RS485_PORT_EN 2  //     -- DE/RE
+
+#define CAN_TX_PIN 4
+#define CAN_RX_PIN 5
+
 #endif
 
 #define FORMAT_LITTLEFS_IF_FAILED true
@@ -42,18 +76,19 @@ Project homepage: https://github.com/gropi75/SEM32
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
+#include <ArduinoJson.h>
 #include <CAN.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #define WEBSERVER_H
-#include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
 #include <AsyncTCP.h>
+#include <WebSocketsServer.h>
 #include "FS.h"
 #include <LittleFS.h>
 FS *filesystem = &LittleFS;
 #define FileFS LittleFS
 #define FS_Name "LittleFS"
 
-#include <ESPUI.h>
+#include <ESPAsyncWebServer.h> // https://github.com/lorol/ESPAsyncWebServer.git
 #include <PubSubClient.h>
 #include "huawei.h"
 #include "commands.h"
@@ -63,14 +98,20 @@ FS *filesystem = &LittleFS;
 #include "jkbms.h"
 #include "secrets.h"
 #include "sunrise.h"
+// #include "webui.h"
 
 TaskHandle_t TaskCan;
+TaskHandle_t webUI;
 int packetSize;
 
+// Servers and socket definition
 WiFiServer server(23);
 WiFiClient serverClient; // for OTA
 WiFiClient mqttclient;   // to connect to MQTT broker
 PubSubClient PSclient(mqttclient);
+
+AsyncWebServer aserver(80);                         // the server uses port 80 (standard port for websites
+WebSocketsServer webSocket = WebSocketsServer(81); // the websocket uses port 81 (standard port for websockets
 
 #ifdef test_debug
 const char ESP_Hostname[] = "Battery_Control_ESP32_TEST"; // Battery_Control_ESP32
@@ -107,6 +148,9 @@ namespace Main
     char date_tomorrow[9]; // = "yyyymmdd";
     int date_dayofweek_today = 8;
 
+    const int ARRAY_LENGTH = 10;        // websocket
+
+
     unsigned long g_Time500 = 0;
     unsigned long g_Time1000 = 0;
     unsigned long g_Time5000 = 0;
@@ -126,26 +170,12 @@ namespace Main
 
     // byte receivedBytes_main[320];
 
-    uint16_t gui_PowerReserveCharger, gui_PowerReserveInv, gui_MaxPowerCharger, gui_MaxPowerInv;
-    uint16_t gui_ActualSetPower, gui_ActualSetPowerCharger, gui_ActualSetPowerInv, gui_DynPowerInv;
-    uint16_t gui_SetMaxPowerInv, gui_SetMaxPowerCharger, gui_setMQTTIP, gui_setMQTTport, gui_testMQTT, gui_enableMQTT, gui_enableChange, gui_savesettings;
-    uint16_t gui_GridPower, gui_ChargerVoltage, gui_ChargerCurrent, gui_ChargerPower;
-    uint16_t gui_ChargerACVoltage, gui_ChargerACCurrent, gui_ChargerACPower, gui_ChargerACfreq;
-
-    uint16_t guiVoltageCell0, guiVoltageCell1, guiVoltageCell2, guiVoltageCell3, guiVoltageCell4;
-    uint16_t guiVoltageCell5, guiVoltageCell6, guiVoltageCell7, guiVoltageCell8, guiVoltageCell9;
-    uint16_t guiVoltageCell10, guiVoltageCell11, guiVoltageCell12, guiVoltageCell13, guiVoltageCell14, guiVoltageCell15;
-    uint16_t guiCapacity, guiSysWorkingTime, guiTotCapacity, guiChargeCurrent, guiLog;
-    uint16_t guiSOC, guiBattVoltage, guiBattStatus, guiCellDelta, guiAvgCellVoltage, guiCellCount;
-    uint16_t gui_today_sunrise, gui_today_sunset, gui_tomorrow_sunrise, gui_prediction;
-    uint16_t guiMOST, guiT1, guiT2;
-    uint16_t gui_resetsettings, gui_resetESP;
-    uint16_t gui_enableManControl, gui_ManualSetPower, g_ManualSetPowerCharger, gui_enabledynamicload;
-    uint16_t gui_SetPowerReserveCharger, gui_SetPowerReserveInverter, gui_BatPower, gui_PVprognosis;
+    uint16_t   g_ManualSetPowerCharger;
     bool g_enableManualControl, g_enableDynamicload = false;
     bool wm_resetsetting = false;
     int MQTTdisconnect_counter = 0;
-
+    DynamicJsonDocument json_data(2048);
+    
     // flag for saving data inside WifiManager
     bool shouldSaveConfig = true;
 
@@ -156,8 +186,25 @@ namespace Main
         shouldSaveConfig = true;
     }
 
-    // Most UI elements are assigned this generic callback which prints some basic information. Event types are defined in ESPUI.h
-    void generalCallback(Control *sender, int type);
+// initialize Web-UI
+void webUI_init(void *parameter);
+
+// update the websocket
+void websocket_update();
+
+// send one variable to the webserver
+void sendJsonValue(String l_type, String l_value);
+
+// send several variables as a JSON string to the clients
+void sendJson(StaticJsonDocument<2800> json);
+
+// send more variables to the webserver
+void sendJsonArray(String l_type, int l_array_values[]);
+
+// callback function
+void webSocketEvent(byte num, WStype_t type, uint8_t *payload, size_t length);
+
+
 
     void onCANReceive(int packetSize)
     {
@@ -194,197 +241,9 @@ namespace Main
                 serverClient.stop();
             if (g_EnableMQTT)
                 PSclient.loop();
+            websocket_update();
             delay(200);
         }
-    }
-
-    // initialize ESPUI
-    void GUI_init()
-    {
-        uint16_t TabStatus = ESPUI.addControl(ControlType::Tab, "Status", "Status");
-        uint16_t TabBatteryInfo = ESPUI.addControl(ControlType::Tab, "Info", "Info");
-        uint16_t TabSettings = ESPUI.addControl(ControlType::Tab, "Settings", "Settings");
-
-        //        ESPUI.addControl(ControlType::Separator, "Global", "", ControlColor::None, TabStatus);
-        guiSOC = ESPUI.addControl(ControlType::Label, "SOC [%]", "0", ControlColor::Emerald, TabStatus);
-        gui_GridPower = ESPUI.addControl(ControlType::Label, "Actual Grid Power [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_ChargerACPower = ESPUI.addControl(ControlType::Label, "Charger Power [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_ActualSetPowerInv = ESPUI.addControl(ControlType::Label, "Inverter Power [W]", "0", ControlColor::Emerald, TabStatus);
-        gui_BatPower = ESPUI.addControl(ControlType::Label, "Battery Power [W]", "0", ControlColor::Emerald, TabStatus);
-
-        // Battery Info Tab
-        ESPUI.addControl(ControlType::Separator, "Battery Infos", "", ControlColor::None, TabBatteryInfo);
-        guiBattStatus = ESPUI.addControl(ControlType::Label, "Battery status", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiCapacity = ESPUI.addControl(ControlType::Label, "Nominal capacity [Ah]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiCellCount = ESPUI.addControl(ControlType::Label, "Cell count", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiSysWorkingTime = ESPUI.addControl(ControlType::Label, "Working time", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiTotCapacity = ESPUI.addControl(ControlType::Label, "Cycle Capacity", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiBattVoltage = ESPUI.addControl(ControlType::Label, "Battery Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiChargeCurrent = ESPUI.addControl(ControlType::Label, "Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiAvgCellVoltage = ESPUI.addControl(ControlType::Label, "Avg.Cell Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiCellDelta = ESPUI.addControl(ControlType::Label, "Cell delta [V]", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "BMS", "", ControlColor::None, TabBatteryInfo);
-        guiMOST = ESPUI.addControl(ControlType::Label, "MOS Temperature [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiT1 = ESPUI.addControl(ControlType::Label, "T1 [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiT2 = ESPUI.addControl(ControlType::Label, "T2 [°C]", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "Charger", "", ControlColor::None, TabBatteryInfo);
-        gui_ActualSetPowerCharger = ESPUI.addControl(ControlType::Label, "Set Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerPower = ESPUI.addControl(ControlType::Label, "DC Power [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerVoltage = ESPUI.addControl(ControlType::Label, "DC Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerCurrent = ESPUI.addControl(ControlType::Label, "DC Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerACVoltage = ESPUI.addControl(ControlType::Label, "AC Voltage [V]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerACCurrent = ESPUI.addControl(ControlType::Label, "AC Current [A]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_ChargerACfreq = ESPUI.addControl(ControlType::Label, "AC frequency [Hz]", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "Cell Voltages [V]", "", ControlColor::None, TabBatteryInfo);
-        guiVoltageCell0 = ESPUI.addControl(ControlType::Label, "Cell 0", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell1 = ESPUI.addControl(ControlType::Label, "Cell 1", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell2 = ESPUI.addControl(ControlType::Label, "Cell 2", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell3 = ESPUI.addControl(ControlType::Label, "Cell 3", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell4 = ESPUI.addControl(ControlType::Label, "Cell 4", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell5 = ESPUI.addControl(ControlType::Label, "Cell 5", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell6 = ESPUI.addControl(ControlType::Label, "Cell 6", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell7 = ESPUI.addControl(ControlType::Label, "Cell 7", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell8 = ESPUI.addControl(ControlType::Label, "Cell 8", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell9 = ESPUI.addControl(ControlType::Label, "Cell 9", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell10 = ESPUI.addControl(ControlType::Label, "Cell 10", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell11 = ESPUI.addControl(ControlType::Label, "Cell 11", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell12 = ESPUI.addControl(ControlType::Label, "Cell 12", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell13 = ESPUI.addControl(ControlType::Label, "Cell 13", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell14 = ESPUI.addControl(ControlType::Label, "Cell 14", "0", ControlColor::Emerald, TabBatteryInfo);
-        guiVoltageCell15 = ESPUI.addControl(ControlType::Label, "Cell 15", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "Control values", "", ControlColor::None, TabBatteryInfo);
-        gui_ActualSetPower = ESPUI.addControl(ControlType::Label, "Actual Set Power [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "(Dis-)Charge Settings", "", ControlColor::None, TabBatteryInfo);
-        gui_MaxPowerCharger = ESPUI.addControl(ControlType::Label, "Max Power Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_MaxPowerInv = ESPUI.addControl(ControlType::Label, "Max Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_DynPowerInv = ESPUI.addControl(ControlType::Label, "Dynamic Power Inverter[W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_PowerReserveCharger = ESPUI.addControl(ControlType::Label, "Power Reserve Charger [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_PowerReserveInv = ESPUI.addControl(ControlType::Label, "Power Reserve Inverter [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        ESPUI.addControl(ControlType::Separator, "Solar info", "", ControlColor::None, TabBatteryInfo);
-        gui_prediction = ESPUI.addControl(ControlType::Label, "Power prediction tomorrow [W]", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_today_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise today", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_today_sunset = ESPUI.addControl(ControlType::Label, "Sunset today", "0", ControlColor::Emerald, TabBatteryInfo);
-        gui_tomorrow_sunrise = ESPUI.addControl(ControlType::Label, "Sunrise tomorrow", "0", ControlColor::Emerald, TabBatteryInfo);
-
-        // Settings tab
-        gui_enableChange = ESPUI.addControl(ControlType::Switcher, "Edit", "", ControlColor::Alizarin, TabSettings, generalCallback);
-        gui_savesettings = ESPUI.addControl(Button, "Save settings", "push", Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(ControlType::Separator, "Management setting", "", ControlColor::None, TabSettings);
-        gui_SetMaxPowerInv = ESPUI.addControl(Slider, "Max Power Inverter", String(MaxPowerInv), Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerInv);
-        ESPUI.addControl(Max, "", "800", None, gui_SetMaxPowerInv);
-        gui_SetMaxPowerCharger = ESPUI.addControl(Slider, "Max Power Charger", String(MaxPowerCharger), Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(Min, "", "0", None, gui_SetMaxPowerCharger);
-        ESPUI.addControl(Max, "", "4000", None, gui_SetMaxPowerCharger);
-        gui_SetPowerReserveCharger = ESPUI.addControl(Slider, "Power Reserve Inverter", String(PowerReserveInv), Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(Min, "", "0", None, gui_SetPowerReserveCharger);
-        ESPUI.addControl(Max, "", "50", None, gui_SetPowerReserveCharger);
-        gui_SetPowerReserveInverter = ESPUI.addControl(Slider, "Power Reserve Charger", String(PowerReserveCharger), Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(Min, "", "0", None, gui_SetPowerReserveInverter);
-        ESPUI.addControl(Max, "", "50", None, gui_SetPowerReserveInverter);
-
-        gui_enableManControl = ESPUI.addControl(ControlType::Switcher, "Enable manual control", "", ControlColor::Alizarin, TabSettings, generalCallback);
-        gui_ManualSetPower = ESPUI.addControl(Slider, "Set charging power manually", "0", Alizarin, TabSettings, generalCallback);
-        ESPUI.addControl(Min, "", "0", None, gui_ManualSetPower);
-        ESPUI.addControl(Max, "", "4000", None, gui_ManualSetPower);
-        gui_enabledynamicload = ESPUI.addControl(ControlType::Switcher, "Enable dynamic load", "", ControlColor::Alizarin, TabSettings, generalCallback);
-
-        ESPUI.addControl(ControlType::Separator, "Network settings", "", ControlColor::None, TabSettings);
-        gui_setMQTTIP = ESPUI.addControl(Text, "MQTT Server:", mqtt_server, Alizarin, TabSettings, generalCallback);
-        gui_setMQTTport = ESPUI.addControl(Text, "MQTT port:", mqtt_port, Alizarin, TabSettings, generalCallback);
-        gui_testMQTT = ESPUI.addControl(Button, "Test MQTT", "push", Alizarin, TabSettings, generalCallback);
-        gui_enableMQTT = ESPUI.addControl(ControlType::Switcher, "Enable MQTT", "", ControlColor::Alizarin, TabSettings, generalCallback);
-        gui_resetESP = ESPUI.addControl(Button, "Restart controller", "push", Alizarin, TabSettings, generalCallback);
-        gui_resetsettings = ESPUI.addControl(Button, "Reset wifi settings", "push", Alizarin, TabSettings, generalCallback);
-
-        // disable editing on settings page
-        ESPUI.updateSwitcher(gui_enableChange, false);
-        ESPUI.updateSwitcher(gui_enableManControl, false);
-        ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
-        ESPUI.setEnabled(gui_savesettings, false);
-        ESPUI.setEnabled(gui_setMQTTIP, false);
-        ESPUI.setEnabled(gui_setMQTTport, false);
-        ESPUI.setEnabled(gui_SetMaxPowerCharger, false);
-        ESPUI.setEnabled(gui_SetMaxPowerInv, false);
-        ESPUI.setEnabled(gui_testMQTT, false);
-        ESPUI.setEnabled(gui_enableMQTT, false);
-        ESPUI.setEnabled(gui_enableManControl, false);
-        ESPUI.setEnabled(gui_ManualSetPower, false);
-        ESPUI.setEnabled(gui_resetESP, false);
-        ESPUI.setEnabled(gui_resetsettings, false);
-        ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
-        ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
-        ESPUI.setEnabled(gui_enabledynamicload, false);
-    }
-
-    // update ESPUI
-    void GUI_update()
-    {
-        ESPUI.updateLabel(gui_ActualSetPower, String(ActualSetPower) + "W");
-        ESPUI.updateLabel(gui_ActualSetPowerCharger, String(ActualSetPowerCharger) + "W");
-        ESPUI.updateLabel(gui_ActualSetPowerInv, String(ActualSetPowerInv) + "W");
-        ESPUI.updateLabel(gui_MaxPowerCharger, String(MaxPowerCharger) + "W");
-        ESPUI.updateLabel(gui_MaxPowerInv, String(MaxPowerInv) + "W");
-        ESPUI.updateLabel(gui_DynPowerInv, String(DynPowerInv) + "W");
-        ESPUI.updateLabel(gui_PowerReserveCharger, String(PowerReserveCharger) + "W");
-        ESPUI.updateLabel(gui_PowerReserveInv, String(PowerReserveInv) + "W");
-        ESPUI.updateLabel(gui_GridPower, String(ActualPower) + "W");
-        ESPUI.updateLabel(gui_ChargerVoltage, String(ActualVoltage) + "V");
-        ESPUI.updateLabel(gui_ChargerCurrent, String(ActualCurrent) + "A");
-        ESPUI.updateLabel(gui_ChargerPower, String(Huawei::g_PSU.output_power) + "W");
-        ESPUI.updateLabel(gui_ChargerACVoltage, String(Huawei::g_PSU.input_voltage) + "V");
-        ESPUI.updateLabel(gui_ChargerACCurrent, String(Huawei::g_PSU.input_current) + "A");
-        ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
-        ESPUI.updateLabel(gui_ChargerACfreq, String(Huawei::g_PSU.input_freq) + "Hz");
-        ESPUI.updateLabel(gui_ChargerACPower, String(Huawei::g_PSU.input_power) + "W");
-
-        // update the BMS values also only every 5 sec
-
-        ESPUI.updateLabel(guiVoltageCell0, String(BMS.cellVoltage[0], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell1, String(BMS.cellVoltage[1], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell2, String(BMS.cellVoltage[2], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell3, String(BMS.cellVoltage[3], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell4, String(BMS.cellVoltage[4], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell5, String(BMS.cellVoltage[5], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell6, String(BMS.cellVoltage[6], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell7, String(BMS.cellVoltage[7], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell8, String(BMS.cellVoltage[8], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell9, String(BMS.cellVoltage[9], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell10, String(BMS.cellVoltage[10], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell11, String(BMS.cellVoltage[11], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell12, String(BMS.cellVoltage[12], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell13, String(BMS.cellVoltage[13], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell14, String(BMS.cellVoltage[14], 3) + "V");
-        ESPUI.updateLabel(guiVoltageCell15, String(BMS.cellVoltage[15], 3) + "V");
-
-        ESPUI.updateLabel(guiSOC, String(BMS.SOC) + "%");
-        ESPUI.updateLabel(guiBattStatus, String(BMS.sBatteryStatus));
-        ESPUI.updateLabel(guiBattVoltage, String(BMS.Battery_Voltage, 3) + "V");
-        ESPUI.updateLabel(guiChargeCurrent, String(BMS.Charge_Current, 3) + "A");
-        ESPUI.updateLabel(guiAvgCellVoltage, String(BMS.Battery_Voltage / BMS.CellCount, 3) + "V");
-        ESPUI.updateLabel(guiCellDelta, String(BMS.Delta_Cell_Voltage, 3) + "V");
-        ESPUI.updateLabel(guiMOST, String(BMS.MOS_Temp, 0) + "°C");
-        ESPUI.updateLabel(guiT1, String(BMS.Battery_T1, 0) + "°C");
-        ESPUI.updateLabel(guiT2, String(BMS.Battery_T2, 0) + "°C");
-        ESPUI.updateLabel(gui_BatPower, String(BMS.Battery_Power, 0) + "W");
-        ESPUI.updateLabel(gui_prediction, String(solar_prognosis, 0) + "kW");
-        ESPUI.updateLabel(gui_today_sunrise, String(myTime.sunrise_today, 2));
-        ESPUI.updateLabel(gui_today_sunset, String(myTime.sunset_today, 2));
-        ESPUI.updateLabel(gui_tomorrow_sunrise, String(myTime.sunrise_tomorrow, 2));
-
-        ESPUI.updateLabel(guiCapacity, String(BMS.Nominal_Capacity) + "Ah");
-        ESPUI.updateLabel(guiSysWorkingTime, String(BMS.days) + " days " + String(BMS.hr) + ":" + String(BMS.mi));
-        //    char str[8];
-        //    sprintf(str, "%X", BMS.Uptime);
-        //    ESPUI.updateLabel(guiSysWorkingTime, str);
-        ESPUI.updateLabel(guiTotCapacity, String(BMS.totBattCycleCapacity) + "Ah");
-        ESPUI.updateLabel(guiCellCount, String(BMS.CellCount));
     }
 
     // (re)connect to MQTT broker
@@ -416,8 +275,6 @@ namespace Main
                 if (MQTTdisconnect_counter > 10) // if reconnect fails several times, MQTT is disabled
                 {
                     g_EnableMQTT = false;
-                    ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
-                    GUI_update();
                     break;
                 }
                 delay(5000);
@@ -519,9 +376,9 @@ namespace Main
         //        digitalWrite(14, HIGH);
 
         Serial.println("BOOTED!");
-        ESPUI.setVerbosity(Verbosity::Quiet);
-        // to prepare the filesystem
-        // ESPUI.prepareFileSystem();
+        // ESPUI.setVerbosity(Verbosity::Quiet);
+        //  to prepare the filesystem
+        //  ESPUI.prepareFileSystem();
 
         // clean FS, for testing
         // LittleFS.format();
@@ -532,6 +389,8 @@ namespace Main
         if (LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED))
         {
             Serial.println("mounted file system");
+            Serial.printf("- Bytes total:   %ld\n", LittleFS.totalBytes());
+            Serial.printf("- Bytes genutzt: %ld\n\n", LittleFS.usedBytes());
             if (LittleFS.exists("/config.json"))
             {
                 // file exists, reading and loading
@@ -694,7 +553,17 @@ namespace Main
         server.setNoDelay(true);
 
 #ifdef BSC_Hardware
-        CAN.setPins(5, 4); // BSC Hardware is using different pinout
+        CAN.setPins(CAN_RX_PIN, CAN_TX_PIN); // BSC Hardware is using different pinout
+#endif
+
+#ifdef TCAN485_Hardware
+        pinMode(PIN_5V_EN, OUTPUT);
+        digitalWrite(PIN_5V_EN, HIGH);
+
+        pinMode(RS485_SE_PIN, OUTPUT);
+        digitalWrite(RS485_SE_PIN, HIGH);
+
+        CAN.setPins(CAN_RX_PIN, CAN_TX_PIN); // Lilygo TCAN485 is using different pinout
 #endif
 
         if (!CAN.begin(125E3))
@@ -737,9 +606,18 @@ namespace Main
         if (g_EnableMQTT)
             reconnect();
 
-        // initialize and start ESPUI
-        GUI_init();
-        ESPUI.begin("Solar Energy Manager32");
+        // initialize the web ui and websocket
+//        xTaskCreatePinnedToCore(
+//            webUI_init, /* Task function. */
+//            "webUI", /* name of task. */
+//            10000,     /* Stack size of task */
+//            NULL,      /* parameter of the task */
+//            1,         /* priority of the task */
+//            &webUI,  /* Task handle to keep track of created task */
+//            1);        /* pin task to core 1 */
+
+
+        webUI_init(NULL);
         Serial.println("Init done");
     }
 
@@ -771,6 +649,118 @@ namespace Main
 
             // update the value for the inverter every second
             sendpower2soyo(ActualSetPowerInv, Soyo_RS485_PORT_EN);
+
+            // GUI_update();
+#if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
+            // DynamicJsonDocument json(2048);
+#else
+            DynamicJsonBuffer jsonBuffer;
+            JsonObject &json = jsonBuffer.createObject();
+#endif
+            json_data.clear();
+            json_data["gridP"] = String(ActualPower);
+            json_data["chargeP"] = String(ActualSetPowerCharger);
+            json_data["invP"] = String(ActualSetPowerInv);
+            json_data["DynInvP"] = String(DynPowerInv);
+            json_data["maxPInv"] = String(MaxPowerInv);
+            json_data["maxPCharg"] = String(MaxPowerCharger);
+            json_data["PresCharg"] = String(PowerReserveCharger);
+            json_data["PresInv"] = String(PowerReserveInv);
+            json_data["PmanCharg"] = String(g_ManualSetPowerCharger);
+            json_data["enPManCharg"] = bool(g_enableManualControl);
+            json_data["enDynload"] = bool(g_enableDynamicload);
+            json_data["mqttSuccess"] = bool(1);
+            json_data["mqttIP"] = String(mqtt_server);
+            json_data["mqttPort"] = String(mqtt_port);
+            json_data["mqttEnable"] = bool(g_EnableMQTT);
+            json_data["SOC"] = String(BMS.SOC);
+            json_data["Battery_Power"] = String(BMS.Battery_Power);
+
+            sendJson(json_data);
+            //char buffer[2000];
+            //serializeJsonPretty(json_data, buffer);
+            //Serial.println(buffer);
+            //json_data.clear();
+
+            json_data["sol_prog"] = String(solar_prognosis);
+            json_data["cellVoltage1"] = String(BMS.cellVoltage[1]);
+            json_data["cellVoltage2"] = String(BMS.cellVoltage[2]);
+            json_data["cellVoltage3"] = String(BMS.cellVoltage[3]);
+            json_data["cellVoltage4"] = String(BMS.cellVoltage[4]);
+            json_data["cellVoltage5"] = String(BMS.cellVoltage[5]);
+            json_data["cellVoltage6"] = String(BMS.cellVoltage[6]);
+            json_data["cellVoltage7"] = String(BMS.cellVoltage[7]);
+            json_data["cellVoltage8"] = String(BMS.cellVoltage[8]);
+            json_data["cellVoltage9"] = String(BMS.cellVoltage[9]);
+            json_data["cellVoltage10"] = String(BMS.cellVoltage[10]);
+            json_data["cellVoltage11"] = String(BMS.cellVoltage[11]);
+            json_data["cellVoltage12"] = String(BMS.cellVoltage[12]);
+            json_data["cellVoltage13"] = String(BMS.cellVoltage[13]);
+            json_data["cellVoltage14"] = String(BMS.cellVoltage[14]);
+            json_data["cellVoltage15"] = String(BMS.cellVoltage[15]);
+            json_data["cellVoltage16"] = String(BMS.cellVoltage[16]);
+
+
+            json_data["MOS_Temp"] = String(BMS.MOS_Temp);
+            json_data["Battery_T1"] = String(BMS.Battery_T1);
+            json_data["Battery_T2"] = String(BMS.Battery_T2);
+            json_data["Battery_Voltage"] = String(BMS.Battery_Voltage);
+            json_data["Charge_Current"] = String(BMS.Charge_Current);
+            json_data["TempSensCount"] = String(BMS.TempSensCount);
+            json_data["Cycle_Count"] = String(BMS.Cycle_Count);
+            json_data["totBattCycleCapacity"] = String(BMS.totBattCycleCapacity);
+            json_data["CellCount"] = String(BMS.CellCount);
+            json_data["WarningMsgWord"] = String(BMS.WarningMsgWord);
+            json_data["BatteryStatus"] = String(BMS.BatteryStatus);
+            json_data["sBatteryStatus"] = BMS.sBatteryStatus;
+            json_data["OVP"] = String(BMS.OVP);               // Total Over Voltage Protection
+            json_data["UVP"] = String(BMS.UVP);               // Total Under VOltage Protection
+            json_data["sOVP"] = String(BMS.sOVP);             // single cell OVP
+            json_data["sOVPR"] = String(BMS.sOVPR);           // single cell OVP recovery
+            json_data["sOVP_delay"] = String(BMS.sOVP_delay); // Single overvoltage protection delay
+            json_data["sUVP"] = String(BMS.sUVP);             // Single Under VOltage Protection
+            json_data["sUVPR"] = String(BMS.sUVPR);           // Monomer undervoltage recovery voltage
+            json_data["sUVP_delay"] = String(BMS.sUVP_delay); // Single undervoltage protection delay
+            json_data["sVoltDiff"] = String(BMS.sVoltDiff);   // Cell pressure difference protection value
+
+
+            json_data["dischargeOCP"] = String(BMS.dischargeOCP);             // Discharge overcurrent protection value
+            json_data["dischargeOCP_delay"] = String(BMS.dischargeOCP_delay); // Discharge overcurrent delay
+
+            json_data["chargeOCP"] = String(BMS.chargeOCP);             // charge overcurrent protection value
+            json_data["chargeOCP_delay"] = String(BMS.chargeOCP_delay); // charge overcurrent delay
+
+            json_data["BalanceStartVoltage"] = String(BMS.BalanceStartVoltage); // Balanced starting voltage
+            json_data["BalanceVoltage"] = String(BMS.BalanceVoltage);           // Balanced opening pressure difference
+            json_data["ActiveBalanceEnable"] = String(BMS.ActiveBalanceEnable); // Active balance switch
+
+            json_data["MOSProtection"] = String(BMS.MOSProtection);       // Power tube temperature protection value
+            json_data["MOSProtectionR"] = String(BMS.MOSProtectionR);     // Power tube temperature protection recovery
+            json_data["TempProtection"] = String(BMS.TempProtection);     // Temperature protection value in the battery box
+            json_data["TempProtectionR"] = String(BMS.TempProtectionR);   // Temperature protection recovery value in the battery box
+            json_data["TempProtDiff"] = String(BMS.TempProtDiff);         // Battery temperature difference protection value
+            json_data["ChargeHTemp"] = String(BMS.ChargeHTemp);           // Battery charging high temperature protection value
+            json_data["DisChargeHTemp"] = String(BMS.DisChargeHTemp);     // Battery discharge high temperature protection value
+            json_data["ChargeLTemp"] = String(BMS.ChargeLTemp);           // Charging low temperature protection value
+            json_data["ChargeLTempR"] = String(BMS.ChargeLTempR);         // Charging low temperature protection recovery value
+            json_data["DisChargeLTemp"] = String(BMS.DisChargeLTemp);     // Discharge low temperature protection value
+            json_data["DisChargeLTempR"] = String(BMS.DisChargeLTempR);   // DisCharging low temperature protection recovery value
+            json_data["Nominal_Capacity"] = String(BMS.Nominal_Capacity); // Battery capacity setting
+
+
+            // float Average_Cell_Voltage);
+            json_data["Delta_Cell_Voltage"] = String(BMS.Delta_Cell_Voltage);
+            json_data["MinCellVoltage"] = String(BMS.MinCellVoltage);
+            json_data["MaxCellVoltage"] = String(BMS.MaxCellVoltage);
+            json_data["Current_Balancer"] = String(BMS.Current_Balancer);
+            json_data["Capacity_Remain"] = String(BMS.Capacity_Remain);
+            json_data["Capacity_Cycle"] = String(BMS.Capacity_Cycle);
+            json_data["Uptime"] = String(BMS.Uptime);
+            json_data["Balance_Curr"] = String(BMS.Balance_Curr);
+            json_data["charge"] = BMS.charge;
+            json_data["discharge"] = BMS.discharge;
+            json_data["balance"] = BMS.balance;
+
             g_Time1000 = millis();
         }
 
@@ -836,14 +826,18 @@ namespace Main
 #endif
             }
 
-            GUI_update();
-
             if (g_EnableMQTT)
             {
                 if (!PSclient.connected())
                     reconnect();          // oif the server is disconnected, reconnect to it
                 if (PSclient.connected()) // only send data, if the server is connected
                 {
+                    char out[2048];
+                    int b =serializeJson(json_data, out);
+
+                    boolean rc = PSclient.publish(ESP_Hostname, out);
+
+
                     sprintf(temp_char, "%d", BMS.SOC);
                     sprintf(mqtt_topic, "%s/Data/SOC", ESP_Hostname);
                     PSclient.publish(mqtt_topic, temp_char);
@@ -938,195 +932,206 @@ namespace Main
         if ((millis() - g_Time30Min) > 10000) // every 10 seconds in case of debugging
 #endif
 #ifndef test_debug
-            if (((millis() - g_Time30Min) > (180*60*1000)) || (date_dayofweek_today == 8)) // 7.200.000 ms = 2 hours, 10.800.000 = 3h due to daily API call limits
+            if (((millis() - g_Time30Min) > (180 * 60 * 1000)) || (date_dayofweek_today == 8)) // 7.200.000 ms = 2 hours, 10.800.000 = 3h due to daily API call limits
 #endif
             {
                 TimeData(&myTime, lagmorning, lagevening, laenge, breite); // call the TimeData function with the parameters and the pointer to the TimeStruct instance
-                // for testing purpose we execute it several time a day
+                                                                           // for testing purpose we execute it several time a day
+#ifndef test_debug
                 solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
-
+#endif
                 // execute the following only once a day due to API limitations
                 if (date_dayofweek_today != myTime.day_of_week)
                 {
-//                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
+                    //                    solar_prognosis = getSolarPrognosis(solarprognose_token, solarprognose_id, myTime.date_today, myTime.date_tomorrow);
                     date_dayofweek_today = myTime.day_of_week;
                 }
                 g_Time30Min = millis();
             }
 
-            // at sunrise and sunset execute the following section 
-            if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
+        // at sunrise and sunset execute the following section
+        if (is_day != setPVstartflag(lagmorning, lagevening, laenge, breite))
+        {
+            is_day = !(is_day);
+            if (!is_day) // execute at sunset the calculation of the dynamic power for the night
+            {
+                BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 / 1000;
+                if (solar_prognosis < expDaytimeUsage)
                 {
-                    is_day = !(is_day);
-                    if (!is_day) // execute at sunset the calculation of the dynamic power for the night
-                    {
-                        BatteryCapacity = BMS.CellCount * BMS.Nominal_Capacity * 3.2 / 1000;
-                        if (solar_prognosis < expDaytimeUsage)
-                        {
-                            target_SOC = 100;
-                        }
-                        else if (solar_prognosis < (BatteryCapacity + expDaytimeUsage))
-                        {
-                            target_SOC = int(100 * (BatteryCapacity - solar_prognosis + expDaytimeUsage) / (BatteryCapacity));
-                        }
-                        else
-                            target_SOC = 0;
-                        DynPowerInv = CalculateBalancedDischargePower(BMS.Nominal_Capacity, BMS.Battery_Voltage, BMS.SOC, target_SOC, myTime.sunset_today, myTime.sunrise_tomorrow);
-                    }
+                    target_SOC = 100;
                 }
+                else if (solar_prognosis < (BatteryCapacity + expDaytimeUsage))
+                {
+                    target_SOC = int(100 * (BatteryCapacity - solar_prognosis + expDaytimeUsage) / (BatteryCapacity));
+                }
+                else
+                    target_SOC = 0;
+                DynPowerInv = CalculateBalancedDischargePower(BMS.Nominal_Capacity, BMS.Battery_Voltage, BMS.SOC, target_SOC, myTime.sunset_today, myTime.sunrise_tomorrow);
+            }
+        }
     }
 
-    // Most UI elements are assigned this generic callback which prints some
-    // basic information. Event types are defined in ESPUI.h
-    void generalCallback(Control *sender, int type)
+void websocket_update()
+{
+    webSocket.loop(); // Update function for the webSockets
+}
+
+// Simple function to send information to the web clients
+void sendJsonValue(String l_type, String l_value)
+{
+    String jsonString = "";                     // create a JSON string for sending data to the client
+    StaticJsonDocument<200> doc;                // create JSON container
+    JsonObject object = doc.to<JsonObject>();   // create a JSON Object
+    object["type"] = l_type;                    // write data into the JSON object
+    object["value"] = l_value;
+    serializeJson(doc, jsonString);             // convert JSON object to string
+    webSocket.broadcastTXT(jsonString);         // send JSON string to all clients
+}
+
+// send several variables as a JSON string to the clients
+void sendJson(StaticJsonDocument<2800> jsonS)
+{
+    char jsonString[2800] = "";                     // create a JSON string for sending data to the client
+    serializeJson(jsonS, jsonString);           // convert JSON object to string
+    webSocket.broadcastTXT(jsonString);         // send JSON string to all clients
+}
+
+// Simple function to send information to the web clients
+void sendJsonArray(String l_type, int l_array_values[])
+{
+    String jsonString = ""; // create a JSON string for sending data to the client
+    const size_t CAPACITY = JSON_ARRAY_SIZE(ARRAY_LENGTH) + 100;
+    StaticJsonDocument<CAPACITY> doc; // create JSON container
+
+    JsonObject object = doc.to<JsonObject>(); // create a JSON Object
+    object["type"] = l_type;                  // write data into the JSON object
+    JsonArray value = object.createNestedArray("value");
+    for (int i = 0; i < ARRAY_LENGTH; i++)
     {
-        if (sender->id == gui_SetMaxPowerInv)
-        {
-            MaxPowerInv = (sender->value).toInt();
-        }
-        if (sender->id == gui_ManualSetPower)
-        {
-            g_ManualSetPowerCharger = (sender->value).toInt();
-        }
-        if (sender->id == gui_enableManControl)
-        {
-            if (type == S_ACTIVE)
-            {
-                g_enableManualControl = true;
-            }
-            if (type == S_INACTIVE)
-            {
-                g_enableManualControl = false;
-            }
-        }
-        if (sender->id == gui_SetMaxPowerCharger)
-        {
-            MaxPowerCharger = (sender->value).toInt();
-        }
-        if (sender->id == gui_setMQTTIP)
-        {
-            (sender->value).toCharArray(mqtt_server, ((sender->value).length() + 1));
-        }
-        if (sender->id == gui_setMQTTport)
-        {
-            (sender->value).toCharArray(mqtt_port, ((sender->value).length() + 1));
-        }
-        if (sender->id == gui_enableMQTT)
-        {
-            MQTTdisconnect_counter = 0; // if user actively enabling/disabling MQTT, than the counter is reset to 0
-            if (type == S_ACTIVE)
-            {
-                g_EnableMQTT = true;
-                reconnect();
-            }
-            if (type == S_INACTIVE)
-            {
-                g_EnableMQTT = false;
-                PSclient.disconnect();
-            }
-        }
-        if (sender->id == gui_enabledynamicload)
-        {
-            if (type == S_ACTIVE)
-            {
-                g_enableDynamicload = true;
-            }
-            if (type == S_INACTIVE)
-            {
-                g_enableDynamicload = false;
-            }
-        }
-        if (sender->id == gui_testMQTT)
-        {
-            if (type == B_DOWN)
-            {
-                ESPUI.updateButton(gui_testMQTT, "failed");
-                reconnect();
-                if (PSclient.connected())
-                {
-                    ESPUI.updateButton(gui_testMQTT, "OK");
-                    if (!g_EnableMQTT)
-                    { // is the general switch is disabled, than disconnect
-                        PSclient.disconnect();
-                    }
-                    MQTTdisconnect_counter = 0;
-                }
-                else if (!PSclient.connected())
-                {
-                    g_EnableMQTT = false;
-                    ESPUI.updateSwitcher(gui_enableMQTT, g_EnableMQTT);
-                }
-            }
-        }
-        if (sender->id == gui_SetPowerReserveCharger)
-        {
-            PowerReserveCharger = (sender->value).toInt();
-        }
-        if (sender->id == gui_SetPowerReserveInverter)
-        {
-            PowerReserveInv = (sender->value).toInt();
-        }
-        if (sender->id == gui_savesettings)
-        {
-            if (type == B_DOWN)
-            {
-                saveconfigfile();
-            }
-        }
-        if (sender->id == gui_resetESP)
-        {
-            if (type == B_DOWN)
-            {
-                ESP.restart();
-            }
-        }
-        if (sender->id == gui_resetsettings)
-        {
-            if (type == B_DOWN)
-            {
-                wm_resetsetting = true;
-            }
-        }
-        if (sender->id == gui_enableChange)
-        {
-            if (type == S_ACTIVE)
-            {
-
-                ESPUI.setEnabled(gui_savesettings, true);
-                ESPUI.setEnabled(gui_setMQTTIP, true);
-                ESPUI.setEnabled(gui_setMQTTport, true);
-                ESPUI.setEnabled(gui_SetMaxPowerCharger, true);
-                ESPUI.setEnabled(gui_SetMaxPowerInv, true);
-                ESPUI.setEnabled(gui_testMQTT, true);
-                ESPUI.setEnabled(gui_enableMQTT, true);
-                ESPUI.setEnabled(gui_enableManControl, true);
-                ESPUI.setEnabled(gui_ManualSetPower, true);
-                ESPUI.setEnabled(gui_resetESP, true);
-                ESPUI.setEnabled(gui_resetsettings, true);
-                ESPUI.setEnabled(gui_SetPowerReserveCharger, true);
-                ESPUI.setEnabled(gui_SetPowerReserveInverter, true);
-                ESPUI.setEnabled(gui_enabledynamicload, true);
-            }
-            if (type == S_INACTIVE)
-            {
-                ESPUI.setEnabled(gui_savesettings, false);
-                ESPUI.setEnabled(gui_setMQTTIP, false);
-                ESPUI.setEnabled(gui_setMQTTport, false);
-                ESPUI.setEnabled(gui_SetMaxPowerCharger, false);
-                ESPUI.setEnabled(gui_SetMaxPowerInv, false);
-                ESPUI.setEnabled(gui_testMQTT, false);
-                ESPUI.setEnabled(gui_enableMQTT, false);
-                ESPUI.setEnabled(gui_enableManControl, false);
-                ESPUI.setEnabled(gui_ManualSetPower, false);
-                ESPUI.setEnabled(gui_resetESP, false);
-                ESPUI.setEnabled(gui_resetsettings, false);
-                ESPUI.setEnabled(gui_SetPowerReserveCharger, false);
-                ESPUI.setEnabled(gui_SetPowerReserveInverter, false);
-                ESPUI.setEnabled(gui_enabledynamicload, false);
-            }
-        }
+        value.add(l_array_values[i]);
     }
+    serializeJson(doc, jsonString);     // convert JSON object to string
+    webSocket.broadcastTXT(jsonString); // send JSON string to all clients
+}
 
+// handler for incoming data over websocket
+void webSocketEvent(byte num, WStype_t type, uint8_t *payload, size_t length)
+{ // the parameters of this callback function are always the same -> num: id of the client who send the event, type: type of message, payload: actual data sent and length: length of payload
+    switch (type)
+    {                         // switch on the type of information sent
+    case WStype_DISCONNECTED: // if a client is disconnected, then type == WStype_DISCONNECTED
+        Serial.println("Client " + String(num) + " disconnected");
+        break;
+    case WStype_CONNECTED: // if a client is connected, then type == WStype_CONNECTED
+        Serial.println("Client " + String(num) + " connected");
+        break;
+    case WStype_TEXT: // if a client has sent data, then type == WStype_TEXT
+        // try to decipher the JSON string received
+        StaticJsonDocument<200>  doc; // create JSON container
+        DeserializationError error = deserializeJson(doc, payload);
+        if (error)
+        {
+            Serial.print(F("deserializeJson() failed: "));
+            Serial.println(error.f_str());
+            return;
+        }
+        else
+        {
+            // JSON string was received correctly, so information can be retrieved:
+            String l_type = doc["command"];
+            int l_value = doc["value"];
+            String really = (char * )payload;
+            Serial.println(really);
+            Serial.println(l_type);
+            if (l_type == "maxPInv"){
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    MaxPowerInv = l_value;
+                    break;
+            }
+            else if (l_type == "maxPCharg") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    MaxPowerCharger = l_value;
+                    break;
+            }
+            else if (l_type == "enManControl") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    g_enableManualControl = l_value;
+                    break;
+            }
+            else if (l_type == "manPCharg") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    g_ManualSetPowerCharger = l_value;
+                    break;
+            }
+            else if (l_type == "PresCharg") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    PowerReserveCharger = l_value;
+                    break;
+            }
+            else if (l_type == "enDynControl") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    g_enableDynamicload = l_value;
+                    break;
+            }
+            else if (l_type == "PresInv") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    PowerReserveInv = l_value;
+                    break;
+            }
+            else if (l_type == "SaveBattSett") {
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("Value: " + String(l_value));
+                    saveconfigfile();
+                    break;
+            }
+            else if (l_type == "set_mqtt") {
+                    int l_value = doc["value"];
+                    strcpy(mqtt_server , doc["ip"]);
+                    strcpy(mqtt_port , doc["port"]);
+                    g_EnableMQTT = bool(doc["enable"]);
+                    Serial.println("Type: " + String(l_type));
+                    Serial.println("IP: " + String(mqtt_server));
+                    Serial.println("Port: " + String(mqtt_port));
+                    Serial.print("Enable: ");
+                    Serial.println(g_EnableMQTT ? "true" : "false");           
+                    //saveconfigfile();
+                    break;
+            }
+            else {
+                Serial.println("nothing");
+            }
+
+        }
+        Serial.println("");
+        break;
+    }
+}
+
+//Start webserver and websocket
+void webUI_init(void *parameter)
+{
+    aserver.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index.html.gz", "text/html");
+        response->addHeader("Content-Encoding", "gzip");
+        request->send(response); 
+    });
+
+    aserver.onNotFound([](AsyncWebServerRequest *request)
+                      { request->send(404, "text/plain", "File not found"); });
+    aserver.serveStatic("/", LittleFS, "/");    //.setDefaultFile("index.html.gz")
+    webSocket.begin();                 // start websocket
+    webSocket.onEvent(webSocketEvent); // define a callback function -> what does the ESP32 need to do when an event from the websocket is received? -> run function "webSocketEvent()"
+    Serial.println("Websocket started");
+    aserver.begin(); // start server -> best practise is to start the server after the websocket
+    Serial.println("Webserver started");
+}
 }
 
 void setup()

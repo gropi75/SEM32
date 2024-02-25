@@ -24,6 +24,9 @@ SEM.32 (Solar Energy Manager 32) based on ESP32 controller, Soyosource Inverter,
 - [x] runs ESP32 boards with RS485+CAN shield
 - [x] runs on ESP32 and on the [BSC-Hardware](https://github.com/shining-man/bsc_hw)
 
+## New web GUI
+![First live screeshoot](https://github.com/gropi75/ESP32_r4850g2/blob/main/components/Screenshoot_GUI_New.jpg)
+
 
 ## Web GUI
 
