@@ -64,7 +64,7 @@ int getActualPower(char ip[40], char cmd[40], char resp[20], char resp_power[20]
     // {"StatusSNS":{"Time":"2023-01-16T22:39:48","SML":{"DJ_TPWRIN":4831.6445,"DJ_TPWROUT":9007.7471,"DJ_TPWRCURR":200}}}
     // {"StatusSNS":{"Time":"2022-07-23T13:45:16","MT175":{"E_in":15503.5,"E_out":27890.3,"P":-4065.00,"L1":-1336.00,"L2":-1462.00,"L3":-1271.00,"Server_ID":"0649534b010e1f662b01"}}}
 
-    StaticJsonDocument<400> doc;
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (error)
     {
@@ -101,7 +101,7 @@ float getSolarPrognosis(char token[40], char id[4], char today[9], char tomorrow
   if (httpCode > 0)
   {
     String payload = http_solar.getString(); // Get the request response payload
-    StaticJsonDocument<768> doc;
+    JsonDocument doc;
     Serial.println(payload);
     DeserializationError error = deserializeJson(doc, payload);
 
@@ -279,7 +279,7 @@ float GetSmartPlugData(char plugip[40], short topic)
   {                                    // check the returning code
     String payload = http.getString(); // Get the request response payload
     // Stream input;
-    StaticJsonDocument<384> doc;
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (error)
     {

@@ -468,7 +468,7 @@ namespace Main
         {
             Serial.println("saving config");
 #if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
-            DynamicJsonDocument json(1024);
+            JsonDocument json;
 #else
             DynamicJsonBuffer jsonBuffer;
             JsonObject &json = jsonBuffer.createObject();
@@ -547,7 +547,7 @@ namespace Main
                     configFile.readBytes(buf.get(), size);
 
 #if defined(ARDUINOJSON_VERSION_MAJOR) && ARDUINOJSON_VERSION_MAJOR >= 6
-                    DynamicJsonDocument json(1024);
+                    JsonDocument json;
                     auto deserializeError = deserializeJson(json, buf.get());
                     serializeJson(json, Serial);
                     if (!deserializeError)
